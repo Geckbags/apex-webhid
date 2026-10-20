@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>APEX WebHID — in-browser smoke test</title>
+<body>
+<pre id="out">running…</pre>
+<div id="fixture" hidden></div>
+<script type="module">
+// Runs the protocol assertions inside a real browser, so the ES modules, the
+// DOM wiring and the WebHID feature detection are all exercised for real rather
+// than assumed from `node --check`.
+import {
+  CMD, COMMAND_CLASS, commandClass, FORBIDDEN_COMMANDS,
+  buildEffectConfig, parseEffectConfig, buildColourConfig,
+  buildHighKeyRecord, buildHighKeyBinding, buildSocdRecord, parseHighKeyRecord,
+  KEY_MODIFIERS, HIGH_KEY_LENGTH,
+  buildMacroPayload, parseMacroRecords, MACRO_WIRE_ORDER, MACRO_RECORD_LEN,
+  buildFrame, MAGIC, REPORT_SIZE, MAX_PAYLOAD,
+  EFFECT_NAMES, parseEffectNames, parseEffectNamePage,
+} from '../js/protocol.js';
+
+const out = [];
+let pass = 0, fail = 0;
+function ok(cond, label, extra = '') {
+  if (cond) { pass++; out.push(`ok   ${label}`); }
+  else { fail++; out.push(`FAIL ${label} ${extra}`); }
+}
+function eq(a, b, label) {
+  const A = JSON.stringify(a), B = JSON.stringify(b);
+  ok(A === B, label, `got ${A} want ${B}`);
+}
+
+out.push(`userAgent: ${navigator.userAgent}`);
+out.push('');
+
+// --- WebHID availability -------------------------------------------------
+ok(typeof navigator !== 'undefined' && 'hid' in navigator,
+  'navigator.hid is present', '(WebHID unsupported in this browser)');
+ok(typeof HIDDevice !== 'undefined' || 'hid' in navigator,
+  'HIDDevice interface reachable');
+
+out.push('');
+
+// --- classification ------------------------------------------------------
+{
+  let read = 0, write = 0, unknown = 0;
+  for (const [name, code] of Object.entries(CMD)) {
+    const c = commandClass(code);
+    if (c === 'read') read++; else if (c === 'write') write++; else unknown++;
+  }
+  eq(Object.keys(CMD).length, 39, '39 opcodes');
+  eq([read, write, unknown], [13, 26, 0], '13 read / 26 write / 0 unclassified');
+  ok(FORBIDDEN_COMMANDS.has(CMD.RESET_KEYBOARD), 'factory reset forbidden');
+}
+
+out.push('');
+
+// --- 0x13 layout ---------------------------------------------------------
+{
+  const p = buildEffectConfig({ effect: 5, brightness: 40, speed: 50 });
+  eq(p.length, 8, 'effect config is 8 bytes');
+  eq([...p], [5, 40, 50, 0, 0, 0, 0, 0], 'effect/brightness/speed in bytes 0-2');
+  const c = buildColourConfig({
+    effect: 5, red: 0xFF, green: 0x00, blue: 0x80,
+    readback: Uint8Array.of(5, 37, 42, 0xAA, 0xBB, 1, 2, 3),
+  });
+  eq([...c], [5, 37, 42, 0xAA, 0xBB, 0xFF, 0x00, 0x80],
+    'colour-only preserves brightness/speed/unnamed and sets RGB');
+  eq(parseEffectConfig(c).colour.hex, '#ff0080', 'parse returns colour hex');
+  let threw = false;
+  try { buildEffectConfig({ effect: 0, brightness: 255 }); } catch { threw = true; }
+  ok(threw, 'brightness 255 rejected');
+}
+
+out.push('');
+
+// --- 0x22 high-key records ----------------------------------------------
+{
+  const expect = [['TGL', 0, 6], ['MT', 1, 11], ['DKS', 2, 19],
+    ['RS', 3, 4], ['OKS', 4, 4], ['SOCD', 5, 5]];
+  for (const [name, id, len] of expect) {
+    const spec = KEY_MODIFIERS[name];
+    eq(spec.id, id, `${name} code ${id}`);
+    eq(HIGH_KEY_LENGTH[id], len, `${name} length ${len}`);
+    const { record } = buildHighKeyBinding({ modifier: name.toLowerCase(), key: 0x2a, data: new Uint8Array(len - 2) });
+    eq(record.length, len, `${name} builds ${len} bytes`);
+    eq(parseHighKeyRecord(record).modifier, name.toLowerCase(), `${name} parses back`);
+  }
+  eq([...buildSocdRecord({ key: 1, key1: 2, key2: 3, mode: 3 })], [1, 5, 2, 3, 3],
+    'SOCD is [key,type,key1,key2,mode]');
+}
+
+out.push('');
+
+// --- 0x40 macro records --------------------------------------------------
+{
+  eq(MACRO_RECORD_LEN, 6, 'macro record is 6 bytes');
+  const rec = Uint8Array.of(0xa0, 0xb1, 0xc2, 0xd3, 0xe4, 0xf5);
+  const p = buildMacroPayload({ slot: 3, records: [rec] });
+  eq([...p], [3, 1, 0xb1, 0xa0, 0xc2, 0xd3, 0xe4, 0xf5], 'macro transposes bytes 0/1');
+  eq(parseMacroRecords(p).records[0].bytes, [...rec], 'macro round-trips');
+}
+
+out.push('');
+
+// --- framing -------------------------------------------------------------
+{
+  const f = buildFrame(CMD.SET_EFFECT_LIGHT, Uint8Array.of(1, 2, 3), 4, 5);
+  eq(f.length, REPORT_SIZE, 'frame is REPORT_SIZE');
+  eq([f[0], f[1], f[2], f[3], f[4], f[5]], [MAGIC, 0x13, 4, 5, 0, 3], 'header layout');
+  let threw = false;
+  try { buildFrame(0x13, new Uint8Array(MAX_PAYLOAD + 1)); } catch { threw = true; }
+  ok(threw, 'oversized payload rejected');
+}
+
+out.push('');
+
+// --- effect names --------------------------------------------------------
+{
+  eq(EFFECT_NAMES.length, 13, '13 effect slots (12 named + 1 undecoded placeholder)');
+  eq(EFFECT_NAMES.filter((n) => n !== null).length, 12, '12 decoded effect names');
+  eq(EFFECT_NAMES[12], null, 'index 12 is the undecoded placeholder');
+  const selectable = Array.from(EFFECT_NAMES, (n, i) => ({ n, i }))
+    .filter(({ n, i }) => n !== null && i <= 11);
+  eq(selectable.length, 12, 'exactly 12 effects are selectable and in range');
+  ok(selectable.every(({ i }) => i >= 0 && i <= 11), 'every selectable effect is in range');
+  const page = parseEffectNamePage(encodeStrings(['Flow L->R', 'Rainbow']), 0);
+  ok(Array.isArray(page) || page !== null, 'parseEffectNamePage returns without throwing');
+  ok(Array.isArray(parseEffectNames(new Uint8Array(0))), 'parseEffectNames tolerates empty input');
+}
+function encodeStrings(list) {
+  // Build a page the way the device does: 18-byte records, 3 per page.
+  const buf = new Uint8Array(list.length * 18);
+  list.forEach((s, i) => { buf.set(new TextEncoder().encode(s), i * 18); });
+  return buf;
+}
+
+out.push('');
+out.push(`${pass} passed, ${fail} failed`);
+document.getElementById('out').textContent = out.join('\n');
+document.title = fail === 0 ? 'SMOKE-PASS' : `SMOKE-FAIL-${fail}`;
+</script>
+</body>

@@ -1,0 +1,8 @@
+# ANT ESPORTS APEX 200 vendor HID interface (314b:1026).
+#
+# Scope this to the exact VID:PID rather than granting access to every hidraw
+# node. Install to /etc/udev/rules.d/70-apex.rules then reload:
+#
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+
+KERNEL=="hidraw*", ATTRS{idVendor}=="314b", ATTRS{idProduct}=="1026", MODE="0660", TAG+="uaccess"

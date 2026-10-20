@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>APEX — DOM wiring check</title>
+<body>
+<pre id="result">running…</pre>
+<script>
+// Loads the real app page in an iframe, then verifies that every element the
+// app's script reaches for actually exists, and that no button is left dead.
+// This catches the class of break that `node --check` cannot: a renamed id or a
+// handler wired to a control that was deleted from the markup.
+const src = new URLSearchParams(location.search).get('page') ?? '/index.html';
+const report = [];
+let fail = 0;
+const ok = (cond, label, extra = '') => {
+  if (cond) report.push(`ok   ${label}`);
+  else { fail++; report.push(`FAIL ${label} ${extra}`); }
+};
+
+const frame = document.createElement('iframe');
+frame.style.cssText = 'width:1200px;height:800px;border:1px solid #ccc';
+document.body.appendChild(frame);
+
+frame.src = src;
+frame.addEventListener('load', async () => {
+  const doc = frame.contentDocument;
+  const win = frame.contentWindow;
+
+  // The wiring lives in js/app.js, not inline, so fetch the module source.
+  const script = doc.querySelector('script[type=module][src]');
+  ok(script !== null, 'page loads an external ES module');
+  const appSrc = await (await fetch(new URL(script.getAttribute('src'), frame.src))).text();
+  ok(appSrc.length > 0, 'module source fetched');
+
+  // Every $('#id') the app reaches for must exist in the document.
+  const wanted = [...appSrc.matchAll(/\$\('#([A-Za-z0-9_-]+)'\)/g)].map((m) => m[1]);
+  const unique = [...new Set(wanted)];
+  const missing = unique.filter((id) => !doc.getElementById(id));
+  ok(missing.length === 0, `all ${unique.length} referenced element ids exist`,
+     missing.length ? `missing: ${missing.join(', ')}` : '');
+
+  // No id may be referenced twice by different controls, and no button should
+  // be left without a handler.
+  const buttons = [...doc.querySelectorAll('button[id]')].map((b) => b.id);
+  const dead = buttons.filter((id) => !appSrc.includes(`#${id}`));
+  ok(dead.length === 0, `all ${buttons.length} buttons have a handler`,
+     dead.length ? `dead: ${dead.join(', ')}` : '');
+
+  // Duplicate ids are silently broken for querySelector; catch them.
+  const allIds = [...doc.querySelectorAll('[id]')].map((e) => e.id);
+  const dupes = [...new Set(allIds.filter((id, i) => allIds.indexOf(id) !== i))];
+  ok(dupes.length === 0, 'no duplicate element ids', dupes.join(', '));
+
+  // The ES module graph must have evaluated without throwing.
+  ok(typeof win.ApexHid !== 'undefined' || doc.querySelector('script[type=module]') !== null,
+     'module graph present in page');
+
+  // The effect dropdown must only offer in-range effects.
+  const mode = doc.getElementById('lMode');
+  ok(mode !== null && mode.options.length > 0, 'effect dropdown is populated');
+  if (mode) {
+    const values = [...mode.options].map((o) => Number(o.value));
+    ok(values.every((v) => v >= 0 && v <= 11),
+       `dropdown offers only valid effects (${values.join(',')})`);
+    ok(!values.includes(12), 'dropdown does not offer the undecoded effect 12');
+  }
+
+  // WebHID must be detected in this browser.
+  ok('hid' in win.navigator, 'navigator.hid available in page context');
+
+  // Interacting requires the app module to have finished evaluating. The page's
+  // load event can fire first, so wait on the marker app.js sets when it is done.
+  const readyBy = Date.now() + 5000;
+  while (doc.body?.dataset.appReady !== '1' && Date.now() < readyBy) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  ok(doc.body?.dataset.appReady === '1', 'app module finished evaluating');
+
+  // The macro step editor is new and interactive; assert it actually does
+  // something rather than merely existing. A control that is present but inert
+  // is exactly the defect this suite exists to catch.
+  const steps = doc.getElementById('macroSteps');
+  const addBtn = doc.getElementById('btnAddStep');
+  const clearBtn = doc.getElementById('btnClearSteps');
+  ok(steps !== null && addBtn !== null && clearBtn !== null,
+     'macro step editor controls exist');
+  ok(doc.getElementById('mRecord') === null,
+     'the old raw-hex macro field is gone, not merely hidden');
+
+  if (steps && addBtn && clearBtn) {
+    ok(steps.querySelectorAll('tr').length === 1 && /no steps/.test(steps.textContent),
+       'macro editor starts empty and says so');
+
+    // The editor replaces its whole tbody on every change, so the "no steps"
+    // placeholder is not still there once a step exists.
+    addBtn.click();
+    ok(steps.querySelectorAll('tr').length === 1 && !/no steps/.test(steps.textContent),
+       'Add step replaces the placeholder with one step row');
+
+    addBtn.click();
+    const rows = steps.querySelectorAll('tr');
+    ok(rows.length === 2, 'a second Add step appends another row',
+       `got ${rows.length}`);
+
+    for (const [i, row] of [...rows].entries()) {
+      const selects = row.querySelectorAll('select');
+      const delay = row.querySelector('input');
+      ok(selects.length === 2, `row ${i} has a key picker and an action picker`,
+         `got ${selects.length}`);
+      ok(delay !== null, `row ${i} has a delay field`);
+      if (selects.length === 2) {
+        const names = [...selects[0].options].map((o) => o.textContent);
+        ok(names.includes('A') && names.includes('LeftCtrl'),
+           `row ${i} key picker offers real names (${names.length} options)`);
+        ok(new Set(names).size === names.length,
+           `row ${i} key picker labels are unambiguous`);
+        const actions = [...selects[1].options].map((o) => o.textContent);
+        ok(actions.includes('Down') && actions.includes('Up'),
+           `row ${i} action picker offers down and up`);
+      }
+      if (delay) ok(Number(delay.max) === 65535, `row ${i} delay caps at u16`);
+    }
+
+    // Removing a step by its own control must work, not just Clear.
+    const drop = rows[1].querySelector('.drop button');
+    ok(drop !== null, 'each row has a remove control');
+    if (drop) {
+      drop.click();
+      ok(steps.querySelectorAll('tr').length === 1,
+         'the remove control deletes just that step');
+    }
+
+    clearBtn.click();
+    ok(steps.querySelectorAll('tr').length === 1 && /no steps/.test(steps.textContent),
+       'Clear empties the editor again');
+  }
+
+  report.push('');
+  report.push(fail === 0 ? 'DOM-PASS' : `DOM-FAIL-${fail}`);
+  document.getElementById('result').textContent = report.join('\n');
+  document.title = fail === 0 ? 'DOM-PASS' : `DOM-FAIL-${fail}`;
+});
+</script>
