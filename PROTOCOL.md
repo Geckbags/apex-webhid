@@ -527,7 +527,7 @@ Per-command wire shapes (counts start at frame offset 6):
 | `0x27` | 0 | 8 | source struct is 16 B; emitted byte 1 written as `0x00` |
 | `0x28` | 1 | 8 | prefix is the record count; records from source offsets 2..9 |
 | `0x20` | 1 | 3 | prefix is sender `+0xC0` = the keymap layer (0 or 1); then the first entry's `keyItem`; then records permuted 1,3,2 |
-| `0x11` | 1 | 4 | prefix is the record count; records from source offsets 1..4 |
+| `0x11` | 1 | 4 | prefix is the page's first `keyItem`; paged, 14 records max (§8.13.4) |
 | `0x10` | 4 | 1 | prefix is sender `+0x242`, `+0x245`, `+0x246`, `+0x247` |
 
 Worked example: `0x28` over 85 keys = `1 + 8×85` = **681 bytes**, which cannot fit
@@ -1555,6 +1555,40 @@ positionally." Both halves are backwards:
 The conclusion this produced - "gated on an unnamed byte" - was wrong. The gate
 has moved from *not understood* to *understood but never run*, which is a weaker
 claim but a different one, and is stated as such in §12.
+
+#### 8.13.4 `0x11` is paged — 14 records per frame
+
+A full APEX200 table is 85 keys, so the payload is `4*85 + 1 = 341` bytes. That
+cannot go in one report: the frame budget is 58 payload bytes, and `buildFrame`
+refuses anything larger. The Windows app does not attempt it either. Its builder
+`FUN_1400a66d0` computes each frame from four sender fields:
+
+```
+startIndex = sender+0x5a      ; frame offset 2 (param1), 1-based page number
+endIndex   = sender+0x59      ; frame offset 3 (param2), last page number
+pageSize   = sender+0x5b
+recordCount= sender+0x5c
+
+startOffset = (startIndex - 1) * pageSize
+count       = (endIndex <= startIndex) ? recordCount - startOffset : pageSize
+LEN         = 4*count + 1
+```
+
+and emits the records at `startOffset .. startOffset+count-1`, with the first
+emitted record's `keyItem` in payload byte 0. The final page is therefore the one
+where `startIndex == endIndex`; its `count` is the remainder. The device sees the
+page number and the last-page number in the frame header, which is what lets it
+acknowledge a multi-frame write.
+
+`pageSize` is what bounds a page, and the frame budget bounds *it*:
+`4*14 + 1 = 57` fits, `4*15 + 1 = 61` does not, so **14 records** is the maximum
+whole page. The driver uses 14 and passes `1..N` / `N` as `param1`/`param2`,
+matching the builder's own arithmetic. It writes all pages, then reads the table
+back and compares every key, so a wrong page boundary fails loudly instead of
+leaving half the board recoloured.
+
+This also corrects the §5 summary row: the leading byte is **the page's first
+`keyItem`**, not a record count.
 
 ### 8.14 Whole-parameter blob `0x50` / `0x5E` — solved
 

@@ -13,6 +13,7 @@ import {
   buildMacroPayload, parseMacroRecords, MACRO_SLOT_MIN, MACRO_SLOT_MAX,
   responseOpcode, awaitsResponse, RESPONSE_DISPATCH, isUnsolicited,
   parseWholeParams, buildWholeParams, parseCustomLight, buildCustomLightPayload,
+  pageCustomLightPayloads,
   BRIGHTNESS_MIN, BRIGHTNESS_MAX, SPEED_MIN, SPEED_MAX,
 } from './protocol.js';
 
@@ -448,6 +449,13 @@ export class ApexHid {
    * colour mistake is recoverable by rewriting colours, unlike keymap layout or
    * actuation records.
    *
+   * The full table does **not** fit one report: 85 keys is 341 bytes against a
+   * 58-byte budget, so it is split the way the app splits it - 14 records per
+   * frame, each frame carrying `param1` = page number (1-based) and `param2` =
+   * last page number. The builder at `0x1400a66d0` derives the per-frame count
+   * from those two fields and LEN as `4*count + 1`; the final page is the one
+   * where `param1 == param2`, whose count is the remainder.
+   *
    * @param {{all?: {light:number,r:number,g:number,b:number},
    *          keys?: Record<number,{light:number,r:number,g:number,b:number}>}} opts
    */
@@ -466,15 +474,31 @@ export class ApexHid {
         b: c.b ?? rec.b,
       };
     });
-    const payload = buildCustomLightPayload(merged);
-    await this.request(CMD.SET_CUSTOM_LIGHT_ALL, payload, { allowWrite: true, timeoutMs: 3000 });
+    const pages = pageCustomLightPayloads(merged);
+    const sent = [];
+    for (const p of pages) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await this.request(CMD.SET_CUSTOM_LIGHT_ALL, p.payload, {
+        param1: p.page,
+        param2: p.totalPages,
+        allowWrite: true,
+        timeoutMs: 3000,
+      });
+      sent.push({
+        page: p.page,
+        totalPages: p.totalPages,
+        count: p.count,
+        len: p.payload.length,
+        responseBytes: r ? r.payload.length : 0,
+      });
+    }
     const after = parseCustomLight((await this.readAll(CMD.GET_CUSTOM_LIGHT)).pages);
     const matched = merged.every((m, i) => {
       const a = after.records[i];
       if (!a) return false;
       return a.keyItem === m.keyItem && a.light === m.light && a.r === m.r && a.g === m.g && a.b === m.b;
     });
-    return { before, after, merged, matched, payload: Array.from(payload) };
+    return { before, after, merged, matched, pages: sent, payload: Array.from(pages[0].payload) };
   }
 
   /**

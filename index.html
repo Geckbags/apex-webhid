@@ -205,98 +205,133 @@
   <!-- LIGHTING -->
   <section id="light">
     <div class="card">
-      <h2>Effects on this keyboard</h2>
+      <h2>Lighting</h2>
       <div class="row">
-        <label class="field">Effect (read from the keyboard with 0x18)
-          <select id="effectSelect"><option value="-1">— read first —</option></select>
-        </label>
-        <button id="btnReadEffects">Read effect list (0x18)</button>
-        <button id="btnReadEffectCount">Effect count (0x17)</button>
+        <button id="btnLightReadAll" class="primary">Read lighting state</button>
+        <span class="hint">one pass: current effect and levels (0x17), effect names (0x18), per-key table (0x16)</span>
       </div>
-      <div class="note">
-        Read-only for now. The list comes from the device, not a hardcoded table.
-        Twelve of the thirteen names decode; one is a non-ASCII blob this build
-        cannot render.
-      </div>
-      <div id="effectInfo" class="note hidden"></div>
+      <div id="lightStatus" class="note">Not read yet &mdash; press <strong>Read lighting state</strong>.</div>
     </div>
 
     <div class="card">
-      <h2>Effect</h2>
+      <h2>Effect engine</h2>
+      <div class="note">
+        These controls describe <strong>one running effect</strong>. Each button
+        writes <em>only the fields beside it</em>; everything else is read from the
+        keyboard first and carried through unchanged, then read back to prove it.
+      </div>
       <div class="grid">
         <label class="field">Effect
           <select id="lMode"></select>
         </label>
-        <label class="field">Brightness
+        <label class="field">Brightness % (0&ndash;100)
           <div class="row">
             <input type="range" id="lBright" min="0" max="100" value="100">
             <output id="lBrightOut">100</output>
           </div>
         </label>
-        <label class="field">Speed
+        <label class="field">Speed (1&ndash;100, higher = slower)
           <div class="row">
             <input type="range" id="lSpeed" min="1" max="100" value="100">
             <output id="lSpeedOut">100</output>
           </div>
         </label>
-        <label class="field">Colour for this effect
-          <div class="row">
-            <input type="color" id="lEffectColor" value="#ff8a3d">
-            <button id="btnSetColour">Apply colour only</button>
-          </div>
-        </label>
-        <label class="field">Effect select (0x19)
-          <div class="row">
-            <button id="btnSelectEffect">Select</button>
-            <span class="hint">makes this the active effect</span>
-          </div>
-        </label>
       </div>
+
+      <table class="params" style="margin-top:14px">
+        <thead><tr><th>Button</th><th>Opcode</th><th>Changes</th><th>Keeps</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Apply effect, brightness &amp; speed</td>
+            <td><code>0x13</code></td>
+            <td>effect index, brightness, speed</td>
+            <td>colour and device-owned bytes</td>
+          </tr>
+          <tr>
+            <td>Apply colour to this effect</td>
+            <td><code>0x13</code></td>
+            <td>R, G, B for this effect</td>
+            <td>brightness, speed, device-owned bytes</td>
+          </tr>
+          <tr>
+            <td>Make this the active effect</td>
+            <td><code>0x19</code></td>
+            <td>which effect is running</td>
+            <td>every config byte</td>
+          </tr>
+        </tbody>
+      </table>
+
       <div class="row" style="margin-top:14px">
-        <button id="btnSetLight" class="primary">Apply effect (0x13)</button>
-        <span class="hint" style="color:#ffb86c">⚠️ Write — tested with readback; still use with caution</span>
-        <button id="btnGetLight">Read current (0x17)</button>
-        <button id="btnGetLightName">Read names (0x18)</button>
-        <button id="btnCustom">Read custom light (0x16)</button>
+        <button id="btnSetLight" class="primary">Apply effect, brightness &amp; speed</button>
+        <span class="hint">write 0x13 &mdash; sliders only &middot; readback verified</span>
       </div>
-      <div class="card" style="margin-top:16px">
-        <h3>Per-key colour (0x11) — exposed</h3>
-        <div class="row">
-          <label class="field">Set all keys to
-            <div class="row">
-              <input type="color" id="pkAllColor" value="#ff0000">
-              <label class="field">Mode
-                <select id="pkAllMode">
-                  <option value="1">1</option>
-                  <option value="0">0</option>
-                  <option value="2">2</option>
-                </select>
-              </label>
-              <button id="btnPkAll">Apply to all (read-modify-write + readback)</button>
-              <span class="hint" style="color:#4ade80">SAFE WRITE — verified</span>
-            </div>
-          </label>
+      <div class="row" style="margin-top:12px">
+        <input type="color" id="lEffectColor" value="#ff8a3d">
+        <button id="btnSetColour">Apply colour to this effect</button>
+        <span class="hint">write 0x13 &mdash; colour only &middot; readback verified</span>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="btnSelectEffect">Make this the active effect</button>
+        <span class="hint">write 0x19 &mdash; config unchanged</span>
+      </div>
+
+      <details class="advanced" style="margin-top:16px">
+        <summary>Advanced reads (raw)</summary>
+        <div class="row" style="margin-top:10px">
+          <button id="btnGetLight">Read config (0x17)</button>
+          <button id="btnGetLightName">Read names (0x18)</button>
+          <button id="btnReadEffectCount">Effect count (0x17)</button>
+          <button id="btnReadEffects">Rebuild name list (0x18)</button>
+          <button id="btnCustom">Read per-key raw (0x16)</button>
         </div>
         <div class="note">
-          <strong>Every byte named from assembly (§8.13.2).</strong> Byte 0 = first keyItem; body = (light, R, G, B) per key in ascending QMap order.
-          This uses <code>0x16</code> to read first, preserves untouched keys, writes <code>0x11</code> with <code>allowWrite</code>, reads back and verifies.
-          Colour is data (recoverable by rewriting) unlike keymap layout or actuation records.
+          Reads only. The name list is read from the keyboard; twelve of the
+          thirteen names decode, and the remaining slot is shown as undecoded
+          rather than guessed. Index 12 is outside the device's validated
+          0&ndash;11 range, so it is never offered as a write.
         </div>
-        <pre id="pkOut" class="hidden"></pre>
-      </div>
+        <div id="effectInfo" class="note hidden"></div>
+        <pre id="lightOut" class="hidden"></pre>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Per-key colour table</h2>
       <div class="note">
-        <strong>Layout recovered from the Windows app (PROTOCOL.md &sect;6).</strong>
-        The <code>0x13</code> payload is 8 bytes:
-        <code>[0]</code> effect index 0&ndash;11,
-        <code>[1]</code> brightness 0&ndash;100 sent raw,
-        <code>[2]</code> speed 1&ndash;100 (higher is <em>slower</em>),
-        <code>[3]</code> and <code>[4]</code> unnamed, carried through;
-        <code>[5]</code> <code>[6]</code> <code>[7]</code> = R, G, B.
-        Brightness is a percentage, not a 0&ndash;255 level.
-        Every apply reads the device first, so fields you did not touch survive
-        unchanged &mdash; exactly what the Windows app's own handlers do.
+        <strong>This is a separate feature from the effect engine.</strong> It is a
+        static colour per key, used when the board is in its per-key/custom mode.
+        It does not change the effect, brightness or speed above.
+        <br><br>
+        Every byte is named from assembly (&sect;8.13.2): byte 0 = the first
+        keyItem, then <code>(light, R, G, B)</code> per key in ascending order.
+        The command is <code>0x11</code>; the table is read with <code>0x16</code>
+        first, untouched keys are preserved, and the write is split into 14-key
+        pages exactly as the app's builder does. The whole table is read back and
+        compared afterwards.
       </div>
-      <pre id="lightOut" class="hidden"></pre>
+      <div class="row" style="margin-top:12px">
+        <label class="field">Colour
+          <input type="color" id="pkAllColor" value="#ff0000">
+        </label>
+        <label class="field">Light byte
+          <div class="row">
+            <select id="pkAllMode">
+              <option value="1">1</option>
+              <option value="0">0</option>
+              <option value="2">2</option>
+            </select>
+            <span class="hint">0 = off, 1 = colour on; 2 kept for parity</span>
+          </div>
+        </label>
+        <button id="btnPkAll" class="primary">Set every key to this colour</button>
+      </div>
+      <div class="note" style="color:#4ade80">
+        Write <code>0x11</code> &mdash; read-modify-write against <code>0x16</code>,
+        then full-table readback verification. Colour is recoverable by rewriting,
+        unlike keymap layout or actuation records.
+      </div>
+      <pre id="pkOut" class="hidden"></pre>
     </div>
   </section>
 

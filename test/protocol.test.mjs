@@ -15,6 +15,7 @@ import {
   parseKeymap, KEYMAP_RECORD_LEN, KEYMAP_WIRE_PERMUTATION, KEYMAP_WIRE_FIELD,
   buildKeymapPayload, keymapPayloadLen, isValidKeymapLayer,
   buildCustomLightPayload, customLightPayloadLen, CUSTOM_LIGHT_WRITE_RECORD_LEN,
+  pageCustomLightPayloads, CUSTOM_LIGHT_PAGE_RECORDS,
   KEYMAP_LAYER_MIN, KEYMAP_LAYER_MAX,
   keyName, KEY_NAMES,
   RESPONSE_DISPATCH, UNSOLICITED_RESPONSES, REQUESTS_WITHOUT_RESPONSE,
@@ -582,6 +583,45 @@ console.log('the 0x11 leading byte is the first keyItem, not a flag (8.13.2)');
   eq(JSON.stringify(recs), before, 'building does not mutate the records');
   eq(buildCustomLightPayload([{ ...recs[0], keyItem: 200 }, recs[1]])[0], 200,
     'a different first keyItem lands in byte 0');
+}
+
+console.log('0x11 is paged so a full table fits the 58-byte frame budget');
+{
+  // The builder's LEN is 4*count + 1, so the largest page that fits one report
+  // is 14 records (57 bytes). This is arithmetic on two recovered constants, not
+  // a hardware assumption.
+  eq(CUSTOM_LIGHT_PAGE_RECORDS, 14, '14 records per 0x11 frame');
+  ok(customLightPayloadLen(CUSTOM_LIGHT_PAGE_RECORDS) <= MAX_PAYLOAD,
+     `a full page (${customLightPayloadLen(CUSTOM_LIGHT_PAGE_RECORDS)} B) fits the ${MAX_PAYLOAD}-byte budget`);
+  ok(customLightPayloadLen(CUSTOM_LIGHT_PAGE_RECORDS + 1) > MAX_PAYLOAD,
+     '15 records would not fit, so 14 is the bound and not an arbitrary choice');
+
+  const recs = Array.from({ length: 85 }, (_, i) => ({
+    keyItem: i, light: 1, r: i & 0xff, g: (i * 2) & 0xff, b: (i * 3) & 0xff,
+  }));
+  const pages = pageCustomLightPayloads(recs);
+  eq(pages.length, 7, '85 keys split into 7 pages');
+  eq(pages.map((p) => p.count), [14, 14, 14, 14, 14, 14, 1],
+     'six full pages then the 1-key remainder');
+  eq(pages.map((p) => p.page), [1, 2, 3, 4, 5, 6, 7], 'pages are numbered from 1');
+  eq(new Set(pages.map((p) => p.totalPages)), new Set([7]),
+     'every page carries the same last-page number');
+
+  for (const p of pages) {
+    eq(p.payload.length, customLightPayloadLen(p.count),
+       `page ${p.page} LEN matches its record count`);
+    ok(p.payload.length <= MAX_PAYLOAD, `page ${p.page} fits the frame budget`);
+    eq(p.payload[0], recs[p.startOffset].keyItem,
+       `page ${p.page} leads with its own first keyItem, not page 1's`);
+    eq(p.payload.length, 4 * p.count + 1, `page ${p.page} is columnar`);
+  }
+  eq(pages.reduce((n, p) => n + p.count, 0), 85, 'every key is written exactly once');
+
+  // A table that already fits must still be a single frame - paging must not
+  // split a small write, since the device would then get an empty page 2.
+  const small = pageCustomLightPayloads(recs.slice(0, 5));
+  eq(small.length, 1, 'a small table stays one frame');
+  eq(small[0].payload.length, 21, 'and keeps LEN = 4*5 + 1');
 }
 
 console.log('PROTOCOL.md 8.9.1 records the trigger body as a verbatim copy');

@@ -972,6 +972,56 @@ export function customLightPayloadLen(count) {
 }
 
 /**
+ * Records the app can put in one `0x11` frame.
+ *
+ * The builder derives LEN as `4*count + 1` (PROTOCOL.md 8.13.1) and a frame's
+ * payload budget is `MAX_PAYLOAD` (58) bytes, so the largest whole count is
+ * `floor((58 - 1) / 4) = 14`, giving a 57-byte payload. This is the paging
+ * bound, not a new wire field: the frame itself carries the page number and the
+ * last page number (see `pageCustomLightPayloads`).
+ */
+export const CUSTOM_LIGHT_PAGE_RECORDS =
+  Math.floor((MAX_PAYLOAD - 1) / CUSTOM_LIGHT_WRITE_RECORD_LEN);
+
+/**
+ * Split a full per-key record list into `0x11` frames.
+ *
+ * The app's builder (`0x1400a66d0`) does not send all 85 keys in one report. It
+ * computes, per frame:
+ *
+ *   startOffset = (startIndex - 1) * pageSize
+ *   count       = (endIndex <= startIndex) ? recordCount - startOffset : pageSize
+ *   LEN         = 4 * count + 1
+ *
+ * and emits the first record's `keyItem` followed by `(light, R, G, B)` for the
+ * `count` records starting at `startOffset`. Frame offset 2 is `startIndex`
+ * (the page number, 1-based) and offset 3 is `endIndex` (the last page), so the
+ * final page is the one where the two are equal and `count` becomes the
+ * remainder. The device therefore knows both the page and how many pages the
+ * write has, which is what lets it acknowledge each one.
+ *
+ * `page`/`totalPages` here are exactly those two frame fields; the driver passes
+ * them through as `param1`/`param2`.
+ */
+export function pageCustomLightPayloads(records) {
+  if (!records.length) throw new RangeError('a custom-light write needs at least one key');
+  const totalPages = Math.ceil(records.length / CUSTOM_LIGHT_PAGE_RECORDS);
+  const pages = [];
+  for (let page = 1; page <= totalPages; page += 1) {
+    const startOffset = (page - 1) * CUSTOM_LIGHT_PAGE_RECORDS;
+    const slice = records.slice(startOffset, startOffset + CUSTOM_LIGHT_PAGE_RECORDS);
+    pages.push({
+      page,
+      totalPages,
+      startOffset,
+      count: slice.length,
+      payload: buildCustomLightPayload(slice),
+    });
+  }
+  return pages;
+}
+
+/**
  * Keymap layer: the byte at `sender+0xC0`, sent as payload byte 0 by all three
  * keymap commands - `0x2A` get, `0x20` set, `0x24` set-flat.
  *

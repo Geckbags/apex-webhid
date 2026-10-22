@@ -41,6 +41,10 @@ document.querySelectorAll('.tabs button').forEach((btn) => {
     document.querySelectorAll('section').forEach((s) => s.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(btn.dataset.tab).classList.add('active');
+    // Lighting is stateful, so refresh it when the tab opens. Without this the
+    // page shows whatever was on screen at connect time until the user presses
+    // a read button - exactly the kind of stale view that invites a wrong write.
+    if (btn.dataset.tab === 'light' && hid.device) $('#btnLightReadAll').click();
   });
 });
 
@@ -224,7 +228,7 @@ $('#btnProductInfo').addEventListener('click', async () => {
 $('#btnReadEffects').addEventListener('click', async () => {
   try {
     const slots = await hid.readEffectNames();
-    const sel = $('#effectSelect');
+    const sel = lMode;
     sel.innerHTML = '';
     slots.forEach(({ index, name }) => {
       const opt = document.createElement('option');
@@ -361,6 +365,58 @@ async function refreshEffect() {
 }
 
 $('#btnGetLight').addEventListener('click', refreshEffect);
+
+/**
+ * One read pass for the whole lighting page: effect config (0x17), the name
+ * table (0x18) and the per-key colour table (0x16). Nothing here writes, so it
+ * is the safe first action on the tab.
+ */
+$('#btnLightReadAll').addEventListener('click', async () => {
+  const status = $('#lightStatus');
+  try {
+    setStatus('reading lighting...', '');
+    const cfg = await hid.readEffectConfig();
+    let names = null;
+    let custom = null;
+    try { names = await hid.readEffectNames(); } catch (err) { /* names are optional */ }
+    try {
+      custom = parseCustomLight((await hid.readAll(CMD.GET_CUSTOM_LIGHT)).pages);
+    } catch (err) { /* per-key table is optional too */ }
+
+    if (names && names.length) {
+      lMode.innerHTML = '';
+      for (const { index, name } of names) {
+        if (index > EFFECT_MAX) continue;
+        const opt = document.createElement('option');
+        opt.value = String(index);
+        opt.textContent = name === null ? `#${index} (undecoded)` : `${index}. ${name}`;
+        lMode.appendChild(opt);
+      }
+    }
+
+    if (!cfg) {
+      status.textContent = 'Device returned fewer than 8 bytes for 0x17; effect config not readable.';
+      return;
+    }
+
+    lMode.value = String(cfg.effect);
+    lBright.value = String(cfg.brightness);
+    lSpeed.value = String(cfg.speed);
+    $('#lBrightOut').textContent = String(cfg.brightness);
+    $('#lSpeedOut').textContent = String(cfg.speed);
+    lEffectColor.value = cfg.colour.hex;
+
+    const name = EFFECT_NAMES[cfg.effect] ?? 'unknown';
+    status.textContent =
+      `Effect ${cfg.effect} (${name}) · brightness ${cfg.brightness}% · ` +
+      `speed ${cfg.speed} · colour ${cfg.colour.hex} · ` +
+      `per-key records ${custom ? custom.records.length : 'unavailable'}`;
+    setStatus('lighting state read', 'on');
+  } catch (err) {
+    fail(err);
+    status.textContent = String(err.message ?? err);
+  }
+});
 
 $('#btnSetLight').addEventListener('click', async () => {
   try {
@@ -1193,8 +1249,13 @@ $('#btnPkAll').addEventListener('click', async () => {
     const light = Number($('#pkAllMode').value) & 0xff;
     setStatus('setting per-key colours...', '');
     const res = await hid.setCustomLight({ all: { light, r, g, b } });
+    const pages = (res.pages ?? [])
+      .map((p) => `  page ${p.page}/${p.totalPages}: ${p.count} key(s), ${p.len}-byte payload`)
+      .join('\n');
     showOutput('#pkOut',
-      `setCustomLightAll wrote ${res.merged.length} keys (first keyItem 0x${res.merged[0].keyItem.toString(16)})\n` +
+      `setCustomLightAll wrote ${res.merged.length} keys in ${res.pages?.length ?? 1} page(s) ` +
+      `(first keyItem 0x${res.merged[0].keyItem.toString(16)})\n` +
+      `${pages}\n` +
       `readback matched: ${res.matched}\n\n` +
       `before: ${res.before.records.slice(0, 3).map(x=>`${x.keyItem.toString(16)}:${x.hex}`).join(' ')} ...\n` +
       `after:  ${res.after.records.slice(0, 3).map(x=>`${x.keyItem.toString(16)}:${x.hex}`).join(' ')} ...`);
