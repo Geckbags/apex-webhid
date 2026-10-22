@@ -6,7 +6,7 @@
 // device". The filter and the selection are therefore asserted here.
 
 import {
-  CONFIG_FILTER, isConfigInterface, selectConfigDevice, describeCollections,
+  ApexHid, CONFIG_FILTER, isConfigInterface, selectConfigDevice, describeCollections,
 } from '../js/driver.js';
 import { VID, PID, VENDOR_USAGE_PAGE } from '../js/protocol.js';
 
@@ -62,6 +62,21 @@ console.log('error text names what the browser actually exposed');
   const text = describeCollections(KEYBOARD);
   ok(text.includes('0x1') && text.includes('0x6'), 'usage page and usage are both printed');
   ok(describeCollections({}).includes('no top-level collections'), 'empty device is described');
+}
+
+console.log('0x23 bulk high-key write is double-gated');
+{
+  const hid = new ApexHid();
+  let threw = false, message = '';
+  try {
+    await hid.setHighKeys([{ key: 1, type: 0, data: [0, 0, 0, 0] }]);
+  } catch (e) {
+    threw = true;
+    message = e.message;
+  }
+  ok(threw, 'refuses without allowBulkWrite even though no device is attached');
+  ok(/allowBulkWrite/.test(message), 'error names the missing opt-in');
+  ok(/8\.21\.8/.test(message), 'error points at the binary evidence');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

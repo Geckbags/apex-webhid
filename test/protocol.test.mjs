@@ -11,6 +11,8 @@ import {
   LIGHT_UNNAMED,
   buildHighKeyRecord, buildHighKeyBinding, buildSocdRecord, parseHighKeyRecord,
   KEY_MODIFIERS, HIGH_KEY_LENGTH,
+  buildHighKeySlot, buildSetHighKeyPage, buildSetHighKeyPages,
+  HIGH_KEY_SLOT_LEN, HIGH_KEY_SLOT_PAGE_SIZE,
   parseCustomLight, CUSTOM_LIGHT_RECORD_LEN, CUSTOM_LIGHT_FIELD,
   parseKeymap, KEYMAP_RECORD_LEN, KEYMAP_WIRE_PERMUTATION, KEYMAP_WIRE_FIELD,
   buildKeymapPayload, keymapPayloadLen, isValidKeymapLayer,
@@ -212,6 +214,71 @@ console.log('0x22 high-key records (PROTOCOL.md 8.3)');
     ['unknown modifier rejected', () => buildHighKeyBinding({ modifier: 'nope', key: 1 })],
     ['wrong data length rejected', () => buildHighKeyBinding({ modifier: 'dks', key: 1, data: new Uint8Array(3) })],
     ['SOCD mode 4 rejected', () => buildSocdRecord({ key: 1, mode: 4 })],
+  ]) {
+    let threw = false;
+    try { fn(); } catch { threw = true; }
+    ok(threw, desc);
+  }
+}
+
+console.log('0x23 bulk high-key pages (PROTOCOL.md 8.21.8)');
+{
+  eq(HIGH_KEY_SLOT_LEN, 19, 'each 0x23 slot is 19 bytes');
+  eq(HIGH_KEY_SLOT_PAGE_SIZE, 3, '64-byte report holds 3 slots (58 / 19)');
+
+  const tgl = buildHighKeySlot({ key: 0x11, type: 0, data: [0xa1, 0xa2, 0xa3, 0xa4] });
+  eq(tgl.length, 19, 'TGL slot is padded to 19');
+  eq([...tgl], [0x11, 0x00, 0xa1, 0xa2, 0xa3, 0xa4, ...Array(13).fill(0)],
+     'TGL sends 4 data bytes and 13 zeros');
+
+  const mt10 = buildHighKeySlot({
+    key: 0x22, type: 1, data: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  });
+  eq([...mt10.slice(0, 12)], [0x22, 0x01, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+     'MT slot carries all 10 data bytes (0x22 truncates the 10th)');
+  eq([...mt10.slice(12)], Array(7).fill(0), 'MT slot pads bytes 12..18');
+  const mt9 = buildHighKeySlot({ key: 0x22, type: 1, data: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+  eq(mt9[11], 0, '9-byte MT input gets a zero 10th byte');
+  eq(mt9.length, 19, '9-byte MT still occupies the full slot');
+
+  const dks = buildHighKeySlot({
+    key: 0x33, type: 2, data: Array.from({ length: 17 }, (_, i) => i + 1),
+  });
+  eq(dks.length, 19, 'DKS fills the slot exactly');
+  eq([...dks.slice(-3)], [15, 16, 17], 'DKS 17th data byte reaches slot byte 18');
+
+  const page = buildSetHighKeyPage({ records: [tgl, mt10, dks], page: 1, lastPage: 2 });
+  eq(page.length, 57, 'three slots make a 57-byte payload');
+  eq(page.slice(0, 19), tgl, 'slot 0 is first');
+  eq(page.slice(19, 38), mt10, 'slot 1 is second');
+  eq(page.slice(38), dks, 'slot 2 is third');
+
+  const frame = buildFrame(CMD.SET_HIGH_KEY, page, 1, 2);
+  eq(frame[1], 0x23, 'frame opcode is 0x23');
+  eq(frame[2], 1, 'frame[2] is page');
+  eq(frame[3], 2, 'frame[3] is lastPage');
+  eq(frame[4], 0, 'frame[4] reserved is 0');
+  eq(frame[5], 57, 'LEN is 19 * count');
+  eq(frame.slice(6, 25), tgl, 'frame payload starts with slot 0');
+
+  const seven = Array.from({ length: 7 }, (_, i) => ({
+    key: i, type: 0, data: [0, 0, 0, 0],
+  }));
+  const pages = buildSetHighKeyPages(seven);
+  eq(pages.length, 3, 'seven records split into three pages');
+  eq(pages.map((p) => p.payload.length / 19), [3, 3, 1], 'pages are 3/3/1 slots');
+  eq(pages.map((p) => p.page), [1, 2, 3], 'pages are 1-based');
+  eq(pages.map((p) => p.lastPage), [3, 3, 3], 'every page carries the same lastPage');
+
+  for (const [desc, fn] of [
+    ['four slots in one page rejected', () => buildSetHighKeyPage({
+      records: Array(4).fill(tgl), page: 1, lastPage: 1,
+    })],
+    ['empty table rejected', () => buildSetHighKeyPages([])],
+    ['bad type rejected', () => buildHighKeySlot({ key: 1, type: 9, data: [] })],
+    ['wrong TGL data length rejected', () => buildHighKeySlot({ key: 1, type: 0, data: [1] })],
+    ['page 0 rejected', () => buildSetHighKeyPage({ records: [tgl], page: 0, lastPage: 1 })],
+    ['lastPage before page rejected', () => buildSetHighKeyPage({ records: [tgl], page: 2, lastPage: 1 })],
   ]) {
     let threw = false;
     try { fn(); } catch { threw = true; }
@@ -1120,8 +1187,16 @@ console.log('feature-parity audit (PROTOCOL.md section 12)');
   const prose = sec.match(/(\d+) exposed, (\d+) deliberately gated, (\d+) refused/);
   ok(prose !== null, 'the prose states all three counts');
   eq([Number(prose[1]), Number(prose[2]), Number(prose[3])],
-     [25, 10, 4],
+     [24, 11, 4],
      'the prose counts match the table exactly');
+
+  // 0x23 is not a per-key config byte and is not UI-reachable: its only sender
+  // is the config-import worker. Lock that attribution so it cannot drift back.
+  const r23 = rows.find((r) => r.req === 0x23);
+  ok(r23 !== undefined, '0x23 has a parity row');
+  ok(/^Gated/.test(r23.status), '0x23 is Gated, not Exposed');
+  ok(/config import/.test(r23.status), '0x23 row names its only sender (config import)');
+  ok(/8\.21\.8/.test(r23.status), '0x23 row points at the builder evidence');
 
 }
 

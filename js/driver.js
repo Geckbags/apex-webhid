@@ -10,6 +10,7 @@ import {
   commandClass, commandClass as _commandClass, FORBIDDEN_COMMANDS,
   buildEffectConfig, parseEffectConfig, buildColourConfig, buildHighKeyRecord, buildHighKeyBinding,
   buildSocdRecord, parseHighKeyRecord, HIGH_KEY_LENGTH,
+  buildSetHighKeyPages, HIGH_KEY_SLOT_LEN, HIGH_KEY_SLOT_PAGE_SIZE,
   buildMacroPayload, parseMacroRecords, MACRO_SLOT_MIN, MACRO_SLOT_MAX,
   responseOpcode, awaitsResponse, RESPONSE_DISPATCH, isUnsolicited,
   parseWholeParams, buildWholeParams, parseCustomLight, buildCustomLightPayload,
@@ -584,17 +585,40 @@ export class ApexHid {
   }
 
   /**
-   * Replace a high-key binding. `0x23`.
+   * Bulk-replace the high-key table. `0x23`.
    *
-   * `0x23` is a fixed 1-byte command writing sender+0xC0, which is the *keyboard
-   * config* field, not the high-key descriptor. The two are NOT interchangeable;
-   * this is exposed under a distinct name so the difference is visible, and it is
-   * not wired to any UI control until its meaning is established.
+   * This is **not** the 1-byte keyboard-config write an earlier revision
+   * described. `FUN_1400a7b40` builds paged, fixed 19-byte slots:
+   *
+   *   [0xFA][0x23][page][lastPage][0][19 * count][slot...]
+   *
+   * with `count <= floor((reportSize - 6) / 19)` - three slots per frame on the
+   * APEX200's 64-byte report. The only sender is the Windows app's config-import
+   * worker (`ImportConfigUtil`, started by MainWindow's Import button), not the
+   * interactive HighKeyForm, which uses `0x22`/`0x25`. See PROTOCOL.md 8.21.8.
+   *
+   * Gated twice: the normal write gate plus an explicit `allowBulkWrite`, and
+   * still wired to no UI. The first hardware test must read the table, write it
+   * back byte-for-byte unchanged, and read it again.
+   *
+   * @param {Array<Uint8Array|{key: number, type: number, data?: number[]}>} records
+   * @param {{allowBulkWrite?: boolean}} [opts]
    */
-  setKeyboardConfigByte(value) {
-    return this.request(CMD.SET_HIGH_KEY, Uint8Array.of(value & 0xff), {
-      allowWrite: true, timeoutMs: 2000,
-    });
+  async setHighKeys(records, { allowBulkWrite = false } = {}) {
+    if (!allowBulkWrite) {
+      throw new Error(
+        'refusing 0x23 setHighKey: this is a bulk table write used only by ' +
+        'config import. Pass { allowBulkWrite: true } only after a byte-identical ' +
+        'readback test on hardware (PROTOCOL.md 8.21.8).');
+    }
+    const pages = buildSetHighKeyPages(records);
+    const replies = [];
+    for (const { payload, page, lastPage } of pages) {
+      replies.push(await this.request(CMD.SET_HIGH_KEY, payload, {
+        param1: page, param2: lastPage, allowWrite: true, timeoutMs: 2000,
+      }));
+    }
+    return replies;
   }
 
   /** Remove a high-key binding. `0x25`, payload is the binding index. */

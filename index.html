@@ -449,8 +449,10 @@
         rather than being guessed.
         <br><br>
         Writes are not offered: <code>0x20</code> and <code>0x24</code> are two
-        distinct functions that the app logs under the same name, and neither is
-        yet attributable to a UI action (see &sect;3.3).
+        distinct commands, and both are now decoded byte-for-byte
+        (&sect;8.19, &sect;8.21.3-8.21.4). They stay gated because neither has run
+        against hardware and each replaces a whole layer. The first test must be
+        read &rarr; write back byte-identical &rarr; read and compare.
       </div>
       <div class="row">
         <button id="btnKeymapSetRef">Use this as reference</button>
@@ -553,8 +555,9 @@
         <button id="btnDelHighKey" class="danger">Delete (0x25)</button>
       </div>
       <div class="note" style="color:#ffb86c">
-        <strong>⚠️ Fn-layer writes (0x22/0x23/0x25)</strong> modify bindings; take a snapshot before changes.
-      </div>
+        <strong>⚠️ Fn-layer writes (0x22/0x25)</strong> modify bindings; take a snapshot before changes.
+        <code>0x23</code> is not a per-key edit: it is a paged 19-byte bulk write used only by
+        the Windows app's config-import worker, and is not wired here (&sect;8.21.8).
       </div>
       <div class="note">
         The Windows app's <code>HighKeyForm</code> stores six advanced per-key
@@ -609,7 +612,7 @@
         <button id="btnCalibStateRange">Read calibration state (0x52)</button>
       </div>
       <div class="note" style="color:#ff6b6b">
-        <b>⛔ WRITING ACTUATION POINTS IS DISABLED.</b> The decompiled frame builders show <code>0x26</code>, <code>0x27</code> and <code>0x28</code> are <em>paged</em> writes. The per-record byte permutation is partially known but not safely reconstructable from static analysis alone — a wrong write can corrupt your layout and is only recoverable by a factory reset. <strong>DO NOT ENABLE WRITES</strong> without live capture against real hardware and verification. Reads above are safe.
+        <b>⛔ WRITING ACTUATION POINTS IS DISABLED.</b> The decompiled frame builders show <code>0x26</code>, <code>0x27</code> and <code>0x28</code> are <em>paged</em> writes. Their record packing is now fully decoded (&sect;8.21.5), so the remaining gate is hardware validation, not missing knowledge — a wrong write can corrupt your layout and is only recoverable by a factory reset. <strong>DO NOT ENABLE WRITES</strong> without a byte-identical readback test on real hardware. Reads above are safe.
       </div>
       <pre id="triggerOut" class="hidden"></pre>
     </div>

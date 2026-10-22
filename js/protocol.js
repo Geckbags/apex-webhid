@@ -183,7 +183,7 @@ export const PAYLOAD_SHAPES = {
     record: 8,
     lenFormula: '8 * count',
     positional: null,
-    gated: 'header bytes unnamed',
+    gated: 'payload decoded (PROTOCOL.md 8.21.1); a multi-effect write has never run against hardware',
   },
   0x20: {
     name: 'set_keyboard_config',
@@ -194,7 +194,18 @@ export const PAYLOAD_SHAPES = {
     lenFormula: '3 * count + 2',
     source: 'QMap at sender+0xC8, walked in ascending key order',
     positional: 'keyItem',
-    gated: 'prefix byte (sender+0xC0) and record byte 0 have no names',
+    gated: 'every byte named (PROTOCOL.md 8.21.3); a whole-layer replace has never run against hardware',
+  },
+  0x23: {
+    name: 'set_high_key',
+    kind: 'record',
+    headerBytes: 0,
+    record: 19,
+    wireOrder: null,
+    lenFormula: '19 * count',
+    source: 'array of 19-byte high-key slots at sender+0xF8',
+    positional: 'keyItem at slot byte 0',
+    gated: 'paged 19-byte bulk write used only by config import (PROTOCOL.md 8.21.8); never run against hardware',
   },
   0x24: {
     name: 'set_keyboard_config_1',
@@ -205,7 +216,7 @@ export const PAYLOAD_SHAPES = {
     lenFormula: '1 * count + 1',
     source: 'flat byte array at sender+0xE0',
     positional: 'key index, implied by array position',
-    gated: 'a different command from 0x20; no field names yet',
+    gated: 'frame decoded (PROTOCOL.md 8.21.4); 0xFF slot semantics unproven, never run against hardware',
   },
   0x40: {
     name: 'set_macro_config',
@@ -673,6 +684,121 @@ export function buildSocdRecord({ key, key1 = 0xff, key2 = 0xff, mode = 0 }) {
     key, type: spec.id,
     data: [key1 & 0xff, key2 & 0xff, mode & 0xff],
   });
+}
+
+/**
+ * `0x23 setHighKey` — the *bulk* high-key write, not a 1-byte config write.
+ *
+ * The Windows app builds this at `FUN_1400a7b40`; the only caller chain is the
+ * config-import worker (`ImportConfigUtil`, started by MainWindow's Import
+ * button), never `HighKeyForm`. It sends fixed 19-byte slots in pages:
+ *
+ *   frame: [0xFA][0x23][page][lastPage][0][19 * count][slot...]
+ *
+ * The page stride is `(reportSize - 6) / 19`. On the APEX200's 64-byte report
+ * that is `58 / 19 = 3` slots per frame. See PROTOCOL.md §8.21.8.
+ */
+export const HIGH_KEY_SLOT_LEN = 19;
+
+/** Full slot data length by type. Type 1 has 10 here; the `0x22` record has 9. */
+export const HIGH_KEY_SLOT_DATA_LEN = {
+  0: 4,
+  1: 10,
+  2: 17,
+  3: 2,
+  4: 2,
+  5: 3,
+};
+
+/** Slots per `0x23` frame on the APEX200: floor((64 - 6) / 19) = 3. */
+export const HIGH_KEY_SLOT_PAGE_SIZE = Math.floor(MAX_PAYLOAD / HIGH_KEY_SLOT_LEN);
+
+/**
+ * Build one fixed 19-byte `0x23` slot.
+ *
+ * `data` is the **wire-order** data (the order `0x22` sends). The app's internal
+ * 19-byte struct stores MT fields 6 and 5 swapped; `FUN_1400a7b40` swaps them
+ * back on the wire. A caller replaying raw app structs is responsible for that
+ * swap; this builder takes the wire order so the two record families agree.
+ *
+ * Type 1 accepts 9 data bytes (the `0x22` record, which truncates the 10th) or
+ * 10 (the full slot the import builder copies). A 9-byte input gets a zero 10th
+ * byte; the meaning of the 10th byte is unproven and it never reaches the wire
+ * through `0x22`.
+ */
+export function buildHighKeySlot({ key, type, data = [] }) {
+  const need = HIGH_KEY_SLOT_DATA_LEN[type];
+  if (need === undefined) {
+    throw new RangeError(
+      `0x23 high-key slot type ${type} has no decoded shape ` +
+      `(known: ${Object.keys(HIGH_KEY_SLOT_DATA_LEN).join(', ')})`);
+  }
+  const bytes = Uint8Array.from(data);
+  if (type === 1 ? (bytes.length !== 9 && bytes.length !== 10) : bytes.length !== need) {
+    throw new RangeError(
+      `0x23 type ${type} needs ${type === 1 ? '9 or 10' : need} data bytes, got ${bytes.length}`);
+  }
+  const slot = new Uint8Array(HIGH_KEY_SLOT_LEN);
+  slot[0] = key & 0xff;
+  slot[1] = type & 0xff;
+  slot.set(bytes, 2);
+  return slot;
+}
+
+/**
+ * Build one `0x23` page payload (the 19-byte slots only; the frame header is
+ * built by `buildFrame` with `param1 = page`, `param2 = lastPage`).
+ *
+ * @param {{records: Array<Uint8Array|{key: number, type: number, data?: number[]}>, page: number, lastPage: number}} opts
+ */
+export function buildSetHighKeyPage({ records, page, lastPage }) {
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new RangeError('0x23 needs at least one high-key record');
+  }
+  if (records.length > HIGH_KEY_SLOT_PAGE_SIZE) {
+    throw new RangeError(
+      `0x23 page holds at most ${HIGH_KEY_SLOT_PAGE_SIZE} slots, got ${records.length}`);
+  }
+  if (!Number.isInteger(page) || page < 1 || page > 0xff) {
+    throw new RangeError(`0x23 page must be 1..255, got ${page}`);
+  }
+  if (!Number.isInteger(lastPage) || lastPage < page || lastPage > 0xff) {
+    throw new RangeError(`0x23 lastPage must be ${page}..255, got ${lastPage}`);
+  }
+  const payload = new Uint8Array(records.length * HIGH_KEY_SLOT_LEN);
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
+    const slot = rec instanceof Uint8Array ? rec : buildHighKeySlot(rec);
+    if (slot.length !== HIGH_KEY_SLOT_LEN) {
+      throw new RangeError(
+        `0x23 slot ${i} must be ${HIGH_KEY_SLOT_LEN} bytes, got ${slot.length}`);
+    }
+    payload.set(slot, i * HIGH_KEY_SLOT_LEN);
+  }
+  return payload;
+}
+
+/**
+ * Split a high-key table into `0x23` pages (three slots per page on APEX200).
+ *
+ * @param {Array<Uint8Array|{key: number, type: number, data?: number[]}>} records
+ * @returns {Array<{payload: Uint8Array, page: number, lastPage: number}>}
+ */
+export function buildSetHighKeyPages(records) {
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new RangeError('0x23 needs at least one high-key record');
+  }
+  const lastPage = Math.ceil(records.length / HIGH_KEY_SLOT_PAGE_SIZE);
+  if (lastPage > 0xff) {
+    throw new RangeError(`0x23 table needs ${lastPage} pages, more than one byte can address`);
+  }
+  const pages = [];
+  for (let i = 0; i < lastPage; i++) {
+    const page = i + 1;
+    const chunk = records.slice(i * HIGH_KEY_SLOT_PAGE_SIZE, (i + 1) * HIGH_KEY_SLOT_PAGE_SIZE);
+    pages.push({ payload: buildSetHighKeyPage({ records: chunk, page, lastPage }), page, lastPage });
+  }
+  return pages;
 }
 
 /** Byte layout of a decoded `0x22` record, for interpreting a `0x2B` readback. */

@@ -131,22 +131,22 @@ data. `WRITE` frames mutate device state.
 
 | Cmd | Method | Dir | Payload (after the 6-byte header) |
 |---:|---|:---:|---|
-| `0x10` | sendSetCustomLight | **W** | 4B: `0x242`,`0x245`,`0x246`,`0x247` |
-| `0x11` | sendSetCustomLightAll | **W** | len from `cl` — **exposed**, read-modify-write + readback |
+| `0x10` | sendSetCustomLight | **W** | 4B `[brightness,R,G,B]` + key-index list; group-expanded (§8.21.2) |
+| `0x11` | sendSetCustomLightAll | **W** | 1B first key + N x 4B — **exposed**, read-modify-write + readback |
 | `0x13` | sendSetEffectLight | **W** | 8B: `0x240`,`0x242`,`0x243`,`0x244`,`0x241`,`0x245`,`0x246`,`0x247` |
-| `0x14` | sendSetEffectLightAll | **W** | len from `cl` |
+| `0x14` | sendSetEffectLightAll | **W** | N x 8B effect record, no prefix (§8.21.1) |
 | `0x16` | sendGetCustomLight | R | none |
 | `0x17` | sendGetEffectLight | R | 1B: effect index |
 | `0x18` | sendGetEffectLightName | R | 1B: page |
 | `0x19` | sendSelectEffectLight | **W** | 1B: effect index |
-| `0x20` | sendSetKeyboardConfig (A) | **W** | 1B: `0xC0` |
-| `0x22` | sendAddHighKey | **W** | 2B: `0x24A`,`0x24B` |
-| `0x23` | sendSetHighKey | **W** | 1B: `0xC0` |
-| `0x24` | sendSetKeyboardConfig (B) | **W** | 1B: `0xC0` |
+| `0x20` | sendSetKeyboardConfig (A) | **W** | `[layer][firstKeyItem]` + N x 3B `[type,lValue,hValue]` (§8.21.3) |
+| `0x22` | sendAddHighKey | **W** | `[key][type]` + type-specific data; record 6/11/19/4/4/5B (§8.3.1) |
+| `0x23` | sendSetHighKey | **W** | paged: 19B per slot, ≤3 slots; frame `[page][lastPage][0][LEN]` (§8.21.8) |
+| `0x24` | sendSetKeyboardConfig (B) | **W** | `[layer]` + N-byte caller list (§8.21.4) |
 | `0x25` | sendDelHighKey | **W** | 1B: `0x24A` |
-| `0x26` | sendSetTriggerConfig | **W** | 2B: `0x260`,`0x261` |
-| `0x27` | sendSetQuickTriggerConfig | **W** | len from `cl` |
-| `0x28` | sendSetTriggerConfigAll | **W** | len from `cl` |
+| `0x26` | sendSetTriggerConfig | **W** | `[trigger lo][trigger hi]` + key-index list (§8.21.5) |
+| `0x27` | sendSetQuickTriggerConfig | **W** | N x 8B `[keyItem,0,model,quick,qt u16,rt u16]` (§8.21.5) |
+| `0x28` | sendSetTriggerConfigAll | **W** | `[firstKeyItem][count]` + N x 8B full record (§8.21.5) |
 | `0x2A` | sendGetKeyboardConfig | R | 1B: `0xC0` |
 | `0x2B` | sendGetHighKey | R | none |
 | `0x2C` | sendGetTriggerConfig | R | none |
@@ -158,7 +158,7 @@ data. `WRITE` frames mutate device state.
 | `0x53` | sendSetReportCalibration | **W** | 1B: `0x298` |
 | `0x54` | sendSaveCalibration | **W** | none |
 | `0x55` | sendSwitchConfigTable | **W** | 1B: `0x88` |
-| `0x56` | sendSetConfigInfo | **W** | 30B from `0x208` |
+| `0x56` | sendSetConfigInfo | **W** | 30B: `[selector]` + UTF-8 name, zero-padded (§8.21.7) |
 | `0x57` | sendGetConfigInfo | R | none |
 | `0x58` | sendAddConfigTable | **W** | 1B: `0x88` |
 | `0x59` | sendDelConfigTable | **W** | 1B: `0x88` |
@@ -835,9 +835,15 @@ per-key functions, not cosmetics.
 last key wins, Key1 wins, Key2 wins, and **"when both keys are pressed neither
 is triggered"**.
 
-All six are stored through the high-key opcode family — `0x22` add, `0x23` set,
-`0x25` delete (§3), with `0x2B` getHighKey to read them back. A driver that only
-exposes plain keycodes cannot express these and is not feature-complete.
+All six are stored through the high-key opcode family — `0x22` add, `0x23` bulk
+set, `0x25` delete (§3), with `0x2B` getHighKey to read them back. A driver that
+only exposes plain keycodes cannot express these and is not feature-complete.
+
+`0x22` and `0x25` are the per-binding edits the interactive `HighKeyForm` uses.
+`0x23` is **not** a per-key edit and is **not** a 1-byte keyboard-config write:
+it is a paged whole-table write of fixed 19-byte slots, and its only sender is
+the config-import worker (`ImportConfigUtil`, started by MainWindow's Import
+button). The two shapes must not be conflated; §8.21.8 has the builder evidence.
 
 ### 8.3.1 High-key record — fully decoded
 
@@ -1134,7 +1140,7 @@ For contrast, these were open earlier in this work and are now closed:
 | `0x20` sends the first entry's `keyItem` once after LEN, then goes positional | §8.18.4 |
 | `sender+0xC0` is the keymap layer, 0 or 1 only - the byte that gated `0x20` | §8.19 |
 | `ImportConfigUtil` is a bulk whole-profile writer with no UI of its own | §8.17 |
-| Feature-parity audit: 39 app functions, 25/10/4 | §12 |
+| Feature-parity audit: 39 app functions, 24/11/4 | §12 |
 | Trigger `0x26` bytes 0-1 = u16 actuation point, paged | §8.9 |
 | Per-key colour `0x10` prefix = brightness, R, G, B | §8.11 |
 | In-browser verification of the page and modules | §11.4 |
@@ -2156,14 +2162,16 @@ call was compared against the name at that position in the blob at `0x1400d8201`
 This is pinned by a test, so a future edit that breaks the correspondence fails
 the suite rather than silently mis-naming a response.
 
-### 8.21 The ten gated opcodes, re-decoded with Ghidra
+### 8.21 The eleven gated opcodes, re-decoded with Ghidra
 
 The original decode of this binary was done with a Hopper session whose
 pseudocode dropped several byte-assembly blocks (§11.2). A second pass with
 Ghidra 12.1.2 over the same artifact
 (`sha256 8c8375bd4a7cee0c00fc8a0bf18f3618b8b4f9730a611998088c9c893e6f0c7d`)
 recovered full function bodies and instruction-level evidence, and that closes
-the packing questions for **all ten** gated opcodes. Nothing in this section is
+the packing questions for **all eleven** gated opcodes, including the `0x23` bulk
+write that earlier revisions had misclassified as an exposed 1-byte command.
+Nothing in this section is
 inferred from the decompiler alone; every layout below is read out of
 `procedure_assembly`.
 
@@ -2179,6 +2187,7 @@ One structural finding underpins the rest. Every sender is dispatched from
             jmp   [jump_table + eax*4]
   case 0x90 -> FUN_1400a60e0   ; 0x10
   case 0xA0 -> FUN_1400a87a0   ; 0x20
+  case 0xA3 -> FUN_1400a7b40   ; 0x23
   case 0xA4 -> FUN_1400a9110   ; 0x24
   case 0xA6 -> FUN_1400ab700   ; 0x26
   case 0xA7 -> FUN_1400aab70   ; 0x27
@@ -2198,6 +2207,7 @@ below are all of the form `stride * remaining + prefix`.
 | `0x10` | `[brightness][R][G][B]` + key-index list | `N + 4` | `frameMax - 4` = 124 | frame decoded; group-expanded keys |
 | `0x14` | `N` x 8-byte effect record, permuted `[0,2,3,4,1,5,6,7]`, **no prefix** | `8N` | `frameMax / 8` = 16 | frame decoded; never run |
 | `0x20` | `[layer][firstKeyItem]` + `N` x `[type,lValue,hValue]` | `3N + 2` | `(frameMax-2)/3` = 42 | all bytes named; never run |
+| `0x23` | `N` x fixed 19-byte high-key slot | `19N` | `frameMax/19` = 3 | decoded; config-import only, never run (§8.21.8) |
 | `0x24` | `[layer]` + caller-built byte list | `N + 1` | `frameMax - 1` = 127 | frame decoded; list meaning unproven |
 | `0x26` | `[trigger lo][trigger hi]` + key-index list | `N + 2` | `frameMax - 2` = 126 | packing decoded; never run |
 | `0x27` | `N` x 8 `[keyItem,0,model,quick,qt,rt]` | `8N` | `frameMax / 8` = 16 | packing decoded; never run |
@@ -2447,6 +2457,82 @@ transport switch - the response name is `set_config_table_info` and the only
 producer is a rename dialog. It stays gated because the device's interpretation
 of the selector byte and the name has never been observed.
 
+#### 8.21.8 `0x23` - a paged 19-byte bulk write, used only by config import
+
+Earlier revisions listed `0x23` as `1B: 0xC0` and called it an exposed
+per-keyboard-config write. That was wrong. The builder is `FUN_1400a7b40`
+(called from dispatcher case `0xA3` at `FUN_14009dca0`), and it emits a **paged
+array of fixed 19-byte high-key slots**:
+
+```
+[0]=0xFA [1]=0x23 [2]=page [3]=lastPage [4]=0 [5]=LEN
+[6..]=count * 19-byte slots          LEN = 19 * count
+```
+
+The wrapper `FUN_1400b0a70` sets the page state:
+
+```
+param_1[0x31] = 0xA3          ; internal opcode = wire 0x23 | 0x80
+param_1[0x30] = 3             ; source/table selector
+param_1[0x5A] = 1             ; first page
+param_1[0x5B] = 58 / 19 = 3   ; slots per frame on a 64-byte report
+param_1[0x59] = ceil(count/3) ; last page
+```
+
+`DAT_140194990`/`DAT_140194994` are initialised to `0x40`/`0x3A` (64/58) and, on
+the real HID path, overwritten from the product tuple's report size
+(`FUN_140095b40`). The APEX200's 64-byte vendor report therefore carries **three
+slots per frame** (57 bytes), not the six a 128-byte buffer would allow.
+
+The source is an array of 16-byte `QByteArray` descriptors at `sender+0xF0`
+(data pointer at `+0xF8`, count at `+0x100`); each descriptor points at a 19-byte
+record. The builder copies type-specific bytes and leaves the rest of the slot
+zero:
+
+| Type | Modifier | Slot bytes copied from source | Slot bytes 2..18 |
+|---:|---|---|---|
+| `0` | TGL | `[2..5]` | 4 data, 13 zero |
+| `1` | MT | `[2..6]`, `[8]`, `[7]`, `[9]`, `[0xA]`, `[0xB]` | 10 data, 7 zero |
+| `2` | DKS | `[2..0x12]` | 17 data, 0 zero |
+| `3` | RS | `[2..3]` | 2 data, 15 zero |
+| `4` | OKS | `[2..3]` | 2 data, 15 zero |
+| `5` | SOCD | `[2..4]` | 3 data, 14 zero |
+
+Slot byte 0 is the key, byte 1 is the type. The type-1 swap is the same
+`0x252`/`0x251` hazard as §8.3.4: the internal struct stores the two fields in
+the opposite order from the wire.
+
+**`0x22` and `0x23` are not interchangeable.** `0x22` is variable-length
+(`6/11/19/4/4/5`) and its MT record declares `LEN=11`, so the 10th MT data byte
+at its frame offset 11 is unreachable. `0x23` uses a fixed 19-byte slot, so the
+same 10th byte (`src[0xB]`) **does** go on the wire. The meaning of that byte is
+unproven; a faithful `0x23` builder must still copy it.
+
+**Attribution.** The builder is reached only from the config-import worker:
+
+```
+MainWindow importButton (string "on_importButton_clicked", 0x1400dfb28)
+  -> FUN_140022d00            QFileDialog::getOpenFileName + progress dialog
+  -> ImportConfigUtil ctor    FUN_14008a780 (QSqlDatabase at +0x10)
+  -> Qt slot 7                FUN_140090630  (qt_metacall FUN_140015230)
+  -> FUN_14008eec0            collect QMap values into the slot array
+  -> FUN_1400b0a70            set page state, call builder
+  -> FUN_1400a7b40            build frame, hid_write
+  -> FUN_14009bc10            response ACK: next page while frame < lastPage
+```
+
+The interactive `HighKeyForm` uses `0x22`/`0x25`; no UI path sends `0x23`
+except Import. The response is `0xA3`; `FUN_14009bc10` stops the one-second timer,
+reads the ACK's frame/total, and re-enters the builder for the next page. A
+`hid_write` failure goes through `FUN_140019810` for the retry path.
+
+The command remains **Gated**: the full frame is now decoded, but the only way
+to prove the page ACK, the 19-byte slot padding, and the MT 10th byte is a
+hardware run. A wrong high-key table can silently change bindings, so the first
+test must read the table, write it back byte-for-byte unchanged, and read it
+again. The WebHID helper is `setHighKeys()` in `js/driver.js`, behind both the
+normal write gate and `allowBulkWrite`.
+
 ### 11.1 How the frame inventory was built
 
 `objdump -d` over `.text`, then a script that looks for the `0xFA` magic store
@@ -2541,7 +2627,7 @@ Neither guardrail exists in the Windows app, which has no equivalent check.
 Every one of the 39 functions the Windows app can perform, and what the WebHID
 app does with it. Built by taking each app method name from §4.6, mapping it to
 its opcode, and checking whether the opcode reaches a driver helper that the UI
-calls. **25 exposed, 10 deliberately gated, 4 refused as firmware** — no row is
+calls. **24 exposed, 11 deliberately gated, 4 refused as firmware** — no row is
 blank, and every gated row names the thing that would have to be known first.
 
 A row only moves from *Gated* to *Exposed* when every byte its write touches has
@@ -2549,14 +2635,13 @@ a name; a row moves the other way the moment one loses it. The test suite fails
 if these counts stop matching the table, so the headline cannot drift away from
 the rows underneath it.
 
-### 12.1 The three fully-named writes that are not exposed
+### 12.1 The two fully-named writes that are not exposed
 
-Three commands now have **every** byte named, and all three are still marked
+`0x20` and `0x24` now have **every** byte named, and both are still marked
 Gated. That is deliberate, and the reason is no longer "a byte is unknown":
 
 | opcode | last unnamed byte | resolved in |
 |---|---|---|
-| `0x11` `sendSetCustomLightAll` | leading byte = first entry's `keyItem` | §8.13.2 |
 | `0x20` `sendSetKeyboardConfig` | prefix byte = the keymap layer | §8.19 |
 | `0x24` `sendSetKeyboardConfig` (B) | prefix byte = the keymap layer | §8.19 |
 
@@ -2602,19 +2687,19 @@ remembered.
 | `0x10` | `sendSetCustomLight` | Gated — group-granular by construction (§8.11.2) |
 | `0x11` | `sendSetCustomLightAll` | Exposed — driver helper + UI, read-modify-write + readback verification (§8.13.2) |
 | `0x13` | `sendSetEffectLight` | Exposed — driver helper + UI |
-| `0x14` | `sendSetEffectLightAll` | Gated — 8 bytes/record confirmed, header bytes unnamed |
+| `0x14` | `sendSetEffectLightAll` | Gated — payload decoded, no header bytes (§8.21.1); never run against hardware |
 | `0x16` | `sendGetCustomLight` | Exposed — driver helper + UI |
 | `0x17` | `sendGetEffectLight` | Exposed — driver helper + UI |
 | `0x18` | `sendGetEffectLightName` | Exposed — driver helper + UI |
 | `0x19` | `sendSelectEffectLight` | Exposed — driver helper + UI |
-| `0x20` | `sendSetKeyboardConfig` | Gated — every byte now named (§8.19); not yet run against hardware |
-| `0x22` | `sendAddHighKey` | Exposed — driver helper + UI |
-| `0x23` | `sendSetHighKey` | Exposed — driver helper + UI |
-| `0x24` | `sendSetKeyboardConfig` | Gated — a different command from `0x20` (§8.15), fields unnamed |
-| `0x25` | `sendDelHighKey` | Exposed — driver helper + UI |
-| `0x26` | `sendSetTriggerConfig` | Gated — actuation record partly decoded (§8.9) |
-| `0x27` | `sendSetQuickTriggerConfig` | Gated — same record family as 0x26 |
-| `0x28` | `sendSetTriggerConfigAll` | Gated — same record family as 0x26 |
+| `0x20` | `sendSetKeyboardConfig` | Gated — every byte named (§8.19); whole-layer replace never run against hardware |
+| `0x22` | `sendAddHighKey` | Exposed — driver helper + UI (HighKeyForm add) |
+| `0x23` | `sendSetHighKey` | Gated — paged 19-byte bulk write used only by config import (§8.21.8); no UI, never run |
+| `0x24` | `sendSetKeyboardConfig` | Gated — a different command from `0x20` (§8.15), every byte named (§8.21.4); never run |
+| `0x25` | `sendDelHighKey` | Exposed — driver helper + UI (HighKeyForm delete) |
+| `0x26` | `sendSetTriggerConfig` | Gated — actuation packing decoded (§8.21.5); never run against hardware |
+| `0x27` | `sendSetQuickTriggerConfig` | Gated — quick/reset packing decoded (§8.21.5); never run |
+| `0x28` | `sendSetTriggerConfigAll` | Gated — full-record packing decoded (§8.21.5); never run |
 | `0x2A` | `sendGetKeyboardConfig` | Exposed — driver helper + UI |
 | `0x2B` | `sendGetHighKey` | Exposed — driver helper + UI |
 | `0x2C` | `sendGetTriggerConfig` | Exposed — driver helper + UI |
@@ -2626,7 +2711,7 @@ remembered.
 | `0x53` | `sendSetReportCalibration` | Gated — calibration write; a wrong value needs a factory reset |
 | `0x54` | `sendSaveCalibration` | Gated — calibration write; a wrong value needs a factory reset |
 | `0x55` | `sendSwitchConfigTable` | Exposed — driver helper + UI |
-| `0x56` | `sendSetConfigInfo` | Gated — 30-byte config blob not decoded, **and switching transport can strand the board where WebHID cannot reach it** |
+| `0x56` | `sendSetConfigInfo` | Gated — 30-byte name block decoded (§8.21.7); device meaning unverified |
 | `0x57` | `sendGetConfigInfo` | Exposed — driver helper + UI |
 | `0x58` | `sendAddConfigTable` | Exposed — driver helper + UI |
 | `0x59` | `sendDelConfigTable` | Exposed — driver helper + UI |

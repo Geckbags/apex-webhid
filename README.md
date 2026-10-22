@@ -97,7 +97,8 @@ Both frontends therefore:
 | Macros M1-M10: read, write, delete | working — real keystroke editor, readback verified |
 | Six advanced modifiers (DKS/MT/TGL/RS/SOCD/OKS) | working — all six codes decoded |
 | Per-key colour | **exposed** — `0x11` setCustomLightAll, read-modify-write + readback verification, every byte named (§8.13.2) |
-| Actuation-point writes | **disabled** — record layout not decoded |
+| Actuation-point writes | **disabled** — packing decoded (§8.21.5), but never hardware-validated; a wrong write needs a factory reset |
+| Profile import (host config → device) | **not implemented** — the Windows app uses `ImportConfigUtil`; it needs the gated keymap, trigger and high-key bulk writes |
 | Firmware update | **not implemented** |
 
 The advanced modifiers are fully decoded: their six record codes are
@@ -179,7 +180,7 @@ own. PROTOCOL.md 8.16-8.17.
 Full list of open items: PROTOCOL.md section 10.
 
 PROTOCOL.md section 12 audits all 39 functions the Windows app can perform:
-**25 exposed, 10 deliberately gated, 4 refused as firmware.** No row is blank and
+**24 exposed, 11 deliberately gated, 4 refused as firmware.** No row is blank and
 every gated row names what would have to be known first. The test suite checks
 that table against the code, so it cannot drift into a claim the app does not
 support.
