@@ -2533,6 +2533,174 @@ test must read the table, write it back byte-for-byte unchanged, and read it
 again. The WebHID helper is `setHighKeys()` in `js/driver.js`, behind both the
 normal write gate and `allowBulkWrite`.
 
+### 8.22 Config import (`ImportConfigUtil`) - the complete write chain
+
+§8.12 recovered the database schema and §8.20.1 proved that the moc blob's
+signal order is the declaration order. This section joins the two: every table
+`ImportConfigUtil::run()` (`FUN_14008e240`) reads, the staging offset it lands
+in, the opcode that later sends it, and the exact signal chain that orders the
+writes.
+
+`run()` is a **reader**. It opens the decrypted SQLite file, stages every record
+set in its own object, and then calls `FUN_1400b0610` once. That call is the
+only frame `run()` sends itself; it is `0x56`, and it starts the chain. Every
+later write is issued by a slot that runs when the previous write's **last
+page** is acknowledged.
+
+#### 8.22.1 Table -> staging -> opcode
+
+| # | SQL source | Staged at | Sent by | Wire |
+|---:|---|---|---|---|
+| 1 | `SELECT * FROM product_table` | `+0x58` | not sent; product id checked against `DAT_140197068+0x10` | - |
+| 2 | `SELECT * FROM config_table` | `+0x40` | name field of `0x56` | `0xD6` |
+| 3 | `SELECT * FROM params_table` | `+0x68` (11-byte struct) | slot 3 | `0x50` |
+| 4 | `SELECT * FROM params_table` again | `+0x68` (same) | same | `0x50` |
+| 5 | `custom_light_table` | `+0x78` | slot 4 | `0x11` |
+| 6 | `effect_light_table` | `+0x80` | slot 5 | `0x14` |
+| 7 | `keyboard_fn_table` | `+0x88` | slot 6 | `0x20` layer 0 |
+| 8 | `keyboard_fn1_table` | `+0x90` | slot 7 phase 1 | `0x20` layer 1 |
+| 9 | `high_key_table` | `+0x98` (QMap key -> record) | slot 7 phase 2 | `0x23` |
+| 10 | `key_macro_table WHERE macroIndex=N ORDER BY item ASC`, N=0..9 | `+0xA0 + 8N` (10 QMaps) | slots 8-9 | `0x40` slot N |
+| 11 | `key_trigger_table` | `+0xF0` | slot 9 | `0x28` |
+
+The loaders, in the order `run()` calls them:
+
+- `FUN_14008db90` - `product_table` -> `+0x58`.
+- `run()` inline - `SELECT * FROM config_table`, first row's first column ->
+  `+0x40`. That string is the profile name later handed to `0x56`.
+- `FUN_14008de60` - `params_table` -> `+0x68`; an 11-byte packed struct
+  (`char, bool, short, short, char, char, bool, bool, char`). It is called
+  **twice**, back to back. Both return values are checked with the same error
+  (`0xffffffe7`); the row is not changed in between, so the second read is
+  redundant, but it is what the binary does.
+- `FUN_14008b430` - `custom_light_table` -> `+0x78`.
+- `FUN_14008b830` - `effect_light_table` -> `+0x80`.
+- `FUN_14008d7d0` - `keyboard_fn_table` -> `+0x88`.
+- `FUN_14008d410` - `keyboard_fn1_table` -> `+0x90`.
+- `FUN_14008bcb0` - `high_key_table` -> `+0x98`, as a QMap keyed by key item.
+- `FUN_14008c1b0` - `key_macro_table`, ten queries
+  (`WHERE macroIndex=:macroIndex ORDER BY item ASC`, `:macroIndex` 0..9) ->
+  ten QMaps at `+0xA0`..`+0xE8`.
+- `FUN_14008cff0` - `key_trigger_table` -> `+0xF0`.
+
+Then `run()` calls `FUN_1400b0610` with the `+0x40` name. The product-table
+check happens before any frame is built: the first `short` of the staged
+product record must equal the first `short` of the running config
+(`DAT_140197068+0x10`), or the import aborts with `0xffffffe8`.
+
+#### 8.22.2 The chain, response by response
+
+The UsbCommunicateUtil metaobject at `0x1400d5fb0` (string table
+`0x1400e22d4`, data `0x1400e18c0`) has 48 method entries of 6 ints each
+(`name, argc, parameters, tag, flags, metaTypeOffset`), 45 signals and 3 slots.
+The nine signal names used by the import are therefore exact, not inferred:
+
+| Signal index | Name |
+|---:|---|
+| `0x04` | `usb_receive_config_info` |
+| `0x10` | `usb_receive_set_config_info` |
+| `0x11` | `usb_receive_set_whole_param` |
+| `0x12` | `usb_receive_set_custom_light_all` |
+| `0x13` | `usb_receive_set_effect_light_all` |
+| `0x14` | `usb_receive_set_keyboard_config` |
+| `0x16` | `usb_receive_set_high_key` |
+| `0x17` | `usb_receive_set_macro_config` |
+| `0x18` | `usb_receive_set_trigger_config_all` |
+
+The response dispatcher `FUN_1400af890` switches on the response opcode and
+calls one `FUN_14009...` handler. That handler emits the matching signal, and
+the constructor `FUN_14008a780` connects the signal to the slot. Both edges are
+direct calls in the binary, so the chain below is read off the code:
+
+| Ack | Handler | Emits | Slot | Slot sends |
+|---:|---|---|---|---|
+| `0xD6` | `FUN_14009a9c0` | `0x10` | `FUN_140090200` | `0x57` |
+| `0xD7` | `FUN_140096270` | `0x04` | `FUN_1400900e0` | `0x50` |
+| `0xD0` | `FUN_14009d000` | `0x11` | `FUN_140090ad0` | `0x11` |
+| `0x91` | `FUN_14009aec0` | `0x12` | `FUN_140090300` | `0x14` |
+| `0x94` | `FUN_14009b3e0` | `0x13` | `FUN_140090410` | `0x20` layer 0 |
+| `0xA0` | `FUN_14009bea0` | `0x14` | `FUN_140090630` | `0x20` layer 1, then `0x23` |
+| `0xA3` | `FUN_14009bc10` | `0x16` | `FUN_140090540` | `0x40` slot 0 |
+| `0xC0` | `FUN_14009c5c0` | `0x17` | `FUN_140090770` | `0x40` slot N+1, then `0x28` |
+| `0xA8` | `FUN_14009cd70` | `0x18` | `FUN_1400908a0` | none; commit |
+
+In full:
+
+1. **`0x56`** - `FUN_1400b0610` copies the `config_table` name into
+   `UsbCommunicateUtil+0x210`, sets the flag byte `+0x208` to 0 and page state
+   `+0x59=+0x5A=1`, then calls builder `FUN_1400a5b20`. `0xD6` ack ->
+   signal `0x10`.
+2. **`0x57`** - slot 2 (`FUN_140090200`) calls `FUN_1400af4c0`; the `0xD7` ack
+   emits signal `0x04`. This is a read, not a write: the app refreshes the
+   config table it just named.
+3. **`0x50`** - slot 3 (`FUN_1400900e0`) calls `FUN_1400b14a0` with `+0x68`;
+   `0xD0` ack -> signal `0x11`.
+4. **`0x11`** - slot 4 (`FUN_140090ad0`) calls `FUN_1400b07c0` with `+0x78`;
+   `0x91` ack -> signal `0x12`.
+5. **`0x14`** - slot 5 (`FUN_140090300`) calls `FUN_1400b09a0` with `+0x80`;
+   `0x94` ack -> signal `0x13`.
+6. **`0x20` layer 0** - slot 6 (`FUN_140090410`) clears `+0xF8`, then calls
+   `FUN_1400b0b80` with `+0x88` and layer 0; `0xA0` ack -> signal `0x14`.
+7. **`0x20` layer 1** - slot 7 (`FUN_140090630`) sees `+0xF8 == 0`, sets it
+   to 1 and calls `FUN_1400b0b80` with `+0x90` and layer 1; `0xA0` ack ->
+   signal `0x14` again.
+8. **`0x23`** - the same slot sees `+0xF8 == 1` and calls `FUN_14008eec0`,
+   which flattens the `+0x98` QMap into 19-byte slots and calls
+   `FUN_1400b0a70`; `0xA3` ack -> signal `0x16`.
+9. **`0x40` slot 0** - slot 8 (`FUN_140090540`) sets `+0xF9=0` and calls
+   `FUN_14008f390`, which selects the `+0xA0` QMap, builds the item list and
+   calls `FUN_1400b0e20` with slot index 0; `0xC0` ack -> signal `0x17`.
+10. **`0x40` slots 1-9** - slot 9 (`FUN_140090770`) increments `+0xF9` and
+    calls `FUN_14008f390` again. Each `0x40` write pages internally; the slot
+    only advances when the ack is for the last page. After slot 9,
+    `+0xF9 == 10`, and the slot calls `FUN_1400b13c0` with `+0xF0`.
+11. **`0x28`** - the `0xA8` ack emits signal `0x18`; slot 10
+    (`FUN_1400908a0`) sends nothing. It raises progress to 100 and copies the
+    staged state into the application's global config (`DAT_140197068`) via
+    `FUN_1400aef50`, `FUN_1400ad030`, `FUN_1400ad0e0`, `FUN_1400ad130`,
+    `FUN_1400ad8b0`, `FUN_1400ad860`, `FUN_1400ad950` and `FUN_1400aef00`.
+
+#### 8.22.3 The last-page rule
+
+Every one of the nine slots guards its action with the same test:
+
+```
+if (*param_4 <= *param_3)   // total <= frame, i.e. this is the last page
+```
+
+The response handler emits the completion signal on **every** page and, when
+`frame < total`, re-enters the page builder itself:
+
+| Command | Handler re-entry |
+|---|---|
+| `0x23` | `FUN_14009bc10` sets `page+1` and `lastPage`, clears `+0x48`, calls `FUN_1400a7b40` |
+| `0x40` | `FUN_14009c5c0` sets `page+1` and `lastPage`, clears `+0x48`, calls `FUN_1400a96a0` |
+
+So the chain advances exactly once per command, after the final page, even
+though the signal fires on every page. A WebHID reimplementation must preserve
+this: treating the first page ack as "command done" would start the next write
+while the device is still receiving the current one.
+
+#### 8.22.4 What the importer does not do
+
+- It never sends `0x55` (`switch_config_table`). The import reaches the profile
+  only through the `0x56` name frame; `0x55` is a separate profile action.
+- The only `0x57` in the chain is the slot-2 read after `0x56`. The importer
+  does not run the standalone profile-list read-back.
+- It does not send `0x24`, `0x26`, `0x27`, `0x53` or `0x54`; those are separate
+  UI actions, not part of a profile import.
+- The ten macro writes are **one per macro slot**, each with its own paging, in
+  index order. The importer does not merge them into one `0x40` frame.
+- The high-key write is **one** paged `0x23` write built from the whole
+  `high_key_table` map; it is not one write per key.
+
+This maps the entire import onto the WebHID driver surface already documented in
+§8.21: `setWholeParams` (`0x50`), `setCustomLightAll` (`0x11`),
+`setEffectLightAll` (`0x14`), `setKeymap` (`0x20`), `setHighKeys` (`0x23`),
+`setMacro` (`0x40`) and `setTriggerConfig` (`0x28`). Profile import remains
+gated until each of those writes has been hardware-validated; the first test is
+still read -> write byte-identical -> read and compare.
+
 ### 11.1 How the frame inventory was built
 
 `objdump -d` over `.text`, then a script that looks for the `0xFA` magic store
@@ -2711,7 +2879,7 @@ remembered.
 | `0x53` | `sendSetReportCalibration` | Gated — calibration write; a wrong value needs a factory reset |
 | `0x54` | `sendSaveCalibration` | Gated — calibration write; a wrong value needs a factory reset |
 | `0x55` | `sendSwitchConfigTable` | Exposed — driver helper + UI |
-| `0x56` | `sendSetConfigInfo` | Gated — 30-byte name block decoded (§8.21.7); device meaning unverified |
+| `0x56` | `sendSetConfigInfo` | Gated — starts the config-import chain with the profile name (§8.21.7, §8.22.2); device meaning unverified |
 | `0x57` | `sendGetConfigInfo` | Exposed — driver helper + UI |
 | `0x58` | `sendAddConfigTable` | Exposed — driver helper + UI |
 | `0x59` | `sendDelConfigTable` | Exposed — driver helper + UI |
@@ -2727,11 +2895,13 @@ remembered.
 Two of the gates are worth calling out because they are safety decisions rather
 than knowledge gaps:
 
-- **`0x56 setConfigInfo` is suspected to be the transport switch** (§8.4 says the
-  wireless modes have no other opcode). Writing it could put the board into
-  Bluetooth or 2.4G mode, where it is no longer reachable over USB — a failure
-  this project has already had to recover from once, by factory reset. Even with
-  the blob decoded, this write would stay behind an explicit acknowledgement.
+- **`0x56 setConfigInfo` is the first frame of the config-import chain**
+  (§8.22.2): it carries the name read from `config_table`, and the device
+  answers it before the chain continues. §8.21.7 shows it is a name write, not
+  the transport switch §8.4 once suspected. It stays gated because the device's
+  interpretation — create, select or rename, and what it does to the currently
+  active profile — is still unverified. Even with the 30-byte block decoded,
+  this write stays behind an explicit acknowledgement.
 - **`0x53`/`0x54` calibration writes** are gated because the record is not
   decoded, and a wrong actuation or timing value is only recoverable by factory
   reset. The matching **reads** (`0x52`, `0x5B`) are exposed.

@@ -357,8 +357,13 @@
       <div class="note">
         The Windows app's <em>Export</em> and <em>Import profile</em> buttons are
         host-side file handling, not protocol operations: export dumps what these
-        four commands read back, and import replays the corresponding writes. A
-        correct import is therefore only as safe as the writes it performs.
+        four commands read back, and import replays the corresponding writes
+        through a decoded chain (PROTOCOL.md &sect;8.22: a <code>0x56</code>
+        name frame, then <code>0x57</code>/<code>0x50</code>/<code>0x11</code>/
+        <code>0x14</code>/<code>0x20</code>/<code>0x23</code>/<code>0x40</code>/
+        <code>0x28</code>, each fired by the previous write's last-page ack).
+        It is not wired here, because a correct import is only as safe as the
+        gated writes it replays, and none of them has been hardware-validated.
       </div>
       <pre id="profileOut" class="hidden"></pre>
     </div>

@@ -98,7 +98,7 @@ Both frontends therefore:
 | Six advanced modifiers (DKS/MT/TGL/RS/SOCD/OKS) | working — all six codes decoded |
 | Per-key colour | **exposed** — `0x11` setCustomLightAll, read-modify-write + readback verification, every byte named (§8.13.2) |
 | Actuation-point writes | **disabled** — packing decoded (§8.21.5), but never hardware-validated; a wrong write needs a factory reset |
-| Profile import (host config → device) | **not implemented** — the Windows app uses `ImportConfigUtil`; it needs the gated keymap, trigger and high-key bulk writes |
+| Profile import (host config → device) | **mapped, not wired** — the whole `ImportConfigUtil` chain is decoded table-by-table (§8.22): a `0x56` name frame, then `0x57`/`0x50`/`0x11`/`0x14`/`0x20`/`0x23`/`0x40`/`0x28`, each on the previous write's last-page ack. It stays off until the gated writes it replays are hardware-validated |
 | Firmware update | **not implemented** |
 
 The advanced modifiers are fully decoded: their six record codes are
