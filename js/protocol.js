@@ -7,6 +7,16 @@ export const VID = 0x314b;
 export const PID = 0x1026;
 
 /**
+ * Top-level usage page of the vendor config collection (USB interface 0).
+ *
+ * The composite device exposes four HID interfaces: the config channel on
+ * `0xFF02`, plus consumer, keyboard and mouse interfaces. Only `0xFF02` speaks
+ * the 64-byte protocol; the others are unrelated (and the keyboard/mouse ones
+ * are protected usages Chrome refuses to hand to a page). See PROTOCOL.md §9.
+ */
+export const VENDOR_USAGE_PAGE = 0xff02;
+
+/**
  * Frame magic — the first byte of the vendor payload.
  *
  * This was originally assumed to be a HID *report ID*. The real report

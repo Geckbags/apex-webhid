@@ -22,6 +22,30 @@ context; `localhost` counts):
 
 Firefox does not implement WebHID.
 
+### "Failed to open HID device"
+
+The config channel is the vendor collection on usage page `0xFF02` (USB
+interface 0). The app filters the picker on that page and verifies the selected
+interface before opening it, so a wrong-interface pick is reported rather than
+silently ignored. If opening the correct interface still fails:
+
+- **Linux** — install the udev rule and replug the keyboard:
+
+      sudo cp 70-apex.rules /etc/udev/rules.d/
+      sudo udevadm control --reload-rules && sudo udevadm trigger
+
+  Check that `/dev/hidraw*` now has an ACL for your user (`getfacl`). Chrome or
+  Chromium installed as a snap/Flatpak may have no hidraw access at all; a
+  distro package, Brave, or the official `.deb` works.
+- **Windows** — close the ANT ESPORTS software and any other HID utility before
+  connecting; they can hold the config interface open.
+- Connect the keyboard **by USB**. WebHID cannot reach the 2.4 GHz dongle or
+  Bluetooth.
+- Close other browser tabs that already have the keyboard open.
+
+The status pill names the failure and the Device tab's trace shows the
+collections the browser actually exposed.
+
 ## CLI
 
 Needs the udev rule so the device is readable without root:

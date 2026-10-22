@@ -31,6 +31,14 @@ else
 fi
 
 echo
+echo "== node: driver self-checks =="
+if node test/driver.test.mjs; then
+  echo "   driver suite OK"
+else
+  echo "   driver suite FAILED"; rc=1
+fi
+
+echo
 echo "== node: syntax check every module =="
 for f in js/*.js; do
   if node --check "$f"; then echo "   ok $f"; else echo "   FAIL $f"; rc=1; fi

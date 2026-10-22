@@ -4,7 +4,7 @@
 // exactly what WebHID supports, so a plain browser page can drive it.
 
 import {
-  VID, PID, WEBHID_REPORT_ID, REPORT_SIZE, MAGIC, CMD, PRODUCT,
+  VID, PID, VENDOR_USAGE_PAGE, WEBHID_REPORT_ID, REPORT_SIZE, MAGIC, CMD, PRODUCT,
   buildFrame, frameToWebHidData, parseResponse, opcodeName, pagedPayloadSize,
   parseEffectNames, parseEffectNamePage,
   commandClass, commandClass as _commandClass, FORBIDDEN_COMMANDS,
@@ -22,6 +22,65 @@ const PRODUCT_KEYS = PRODUCT.keyNumber;
 
 export function webHidSupported() {
   return typeof navigator !== 'undefined' && 'hid' in navigator;
+}
+
+/**
+ * The only interface that can answer `0x62`, `0x17`, `0x13` and friends.
+ *
+ * Filtering on `usagePage` matters: a VID/PID filter matches every HID interface
+ * of this composite device, and opening a keyboard/mouse interface either fails
+ * outright or succeeds against the wrong collection. Chrome matches filters
+ * against top-level collections, and the config collection is the lone
+ * `0xFF02` one (PROTOCOL.md §9).
+ */
+export const CONFIG_FILTER = Object.freeze({
+  vendorId: VID,
+  productId: PID,
+  usagePage: VENDOR_USAGE_PAGE,
+});
+
+/** True when this HID interface carries the vendor config collection. */
+export function isConfigInterface(device) {
+  return (device?.collections ?? []).some((c) => c.usagePage === VENDOR_USAGE_PAGE);
+}
+
+/**
+ * Pick the config interface out of whatever the picker returned.
+ *
+ * Chrome's chooser normally returns one interface, but returning several is
+ * allowed. Never fall back to an arbitrary device: sending a 64-byte vendor
+ * frame to a keyboard collection is at best a no-op and at worst a stray
+ * keystroke, so an unmatched selection is an error, not something to guess at.
+ */
+export function selectConfigDevice(devices) {
+  return (devices ?? []).find(isConfigInterface) ?? null;
+}
+
+/** Human-readable collection list for error messages. */
+export function describeCollections(device) {
+  const collections = device?.collections ?? [];
+  if (!collections.length) return 'no top-level collections reported';
+  return collections
+    .map((c) => `usage page 0x${c.usagePage.toString(16)}, usage 0x${c.usage.toString(16)}`)
+    .join('; ');
+}
+
+/**
+ * Why `open()` can fail on an interface the page can otherwise see. WebHID
+ * surfaces the same generic message for all of them, so name the usual causes.
+ */
+function openHint() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  if (/Linux/i.test(ua)) {
+    return 'on Linux, install 70-apex.rules and replug the keyboard (see README); sandboxed snap/flatpak browsers may block hidraw too';
+  }
+  if (/Windows/i.test(ua)) {
+    return 'close the ANT software and any other app using the keyboard, then replug it';
+  }
+  if (/Mac/i.test(ua)) {
+    return 'close other apps that may hold the HID interface, then replug the keyboard';
+  }
+  return 'close other apps using the keyboard and replug it';
 }
 
 export class ApexHid {
@@ -56,11 +115,18 @@ export class ApexHid {
   /** Ask Chrome for the keyboard. Requires a user gesture. */
   async connect() {
     if (!webHidSupported()) throw new Error('WebHID is unavailable — use Chrome or Edge.');
-    const devices = await navigator.hid.requestDevice({
-      filters: [{ vendorId: VID, productId: PID }],
-    });
-    if (!devices.length) throw new Error('No APEX 200 selected.');
-    await this.attach(devices[0]);
+    const devices = await navigator.hid.requestDevice({ filters: [CONFIG_FILTER] });
+    if (!devices.length) {
+      throw new Error('No APEX 200 config interface selected — connect it by USB (not the 2.4 GHz dongle) and pick the entry the picker offers.');
+    }
+    const device = selectConfigDevice(devices);
+    if (!device) {
+      throw new Error(
+        `Selected interface is not the config channel (${describeCollections(devices[0])}). ` +
+        'Reconnect and choose the entry whose usage page is 0xFF02.',
+      );
+    }
+    await this.attach(device);
     return this.device;
   }
 
@@ -68,14 +134,30 @@ export class ApexHid {
   async restore() {
     if (!webHidSupported()) return null;
     const devices = await navigator.hid.getDevices();
-    const match = devices.find((d) => d.vendorId === VID && d.productId === PID);
+    const match = devices.find(
+      (d) => d.vendorId === VID && d.productId === PID && isConfigInterface(d),
+    );
     if (match) await this.attach(match);
     return this.device;
   }
 
   async attach(device) {
+    // Restore() and any future caller can hand us a granted interface that is
+    // not the config channel. Check before open(): the failure mode is a board
+    // that accepts reports and silently ignores them.
+    if (!isConfigInterface(device)) {
+      throw new Error(`Refusing non-config HID interface (${describeCollections(device)}).`);
+    }
+    if (!device.opened) {
+      try {
+        await device.open();
+      } catch (err) {
+        const e = new Error(`Failed to open HID device — ${openHint()}`);
+        e.cause = err;
+        throw e;
+      }
+    }
     this.device = device;
-    if (!device.opened) await device.open();
 
     device.addEventListener('inputreport', (event) => this.#onInput(event));
     navigator.hid.addEventListener('connect', (event) => {

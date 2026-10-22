@@ -976,15 +976,20 @@ device.addEventListener('inputreport', e => { // e.reportId is 0
 });
 ```
 
-Request filter: `{ filters: [{ vendorId: 0x314b, productId: 0x1026 }] }`. Chrome may
-list several entries for this composite device; pick the one whose collection tree
-contains usage page `0xFF02`.
+Request filter: `{ vendorId: 0x314b, productId: 0x1026, usagePage: 0xFF02 }`.
+The `usagePage` term is load-bearing: a VID/PID-only filter matches every HID
+interface of this composite device, and opening the keyboard or mouse collection
+either fails ("Failed to open HID device") or succeeds against a collection that
+ignores vendor frames. The app also checks `device.collections` for `0xFF02`
+before `open()` and refuses anything else, so a wrong pick is an explicit error
+rather than a silent no-op.
 
 Caveats:
 
 1. Wired USB only — WebHID cannot reach the 2.4 GHz dongle or Bluetooth.
-2. `requestDevice()` filters cannot select by interface number, so the picker may
-   offer more than one entry.
+2. `requestDevice()` filters cannot select by USB interface number; the
+   `usagePage` filter selects the collection instead, and the app re-checks
+   `collections` before opening.
 3. On Linux, hidraw write access needs a udev rule.
 
 ### 8.9 Trigger record `0x26` — solved
