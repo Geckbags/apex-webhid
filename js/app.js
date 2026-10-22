@@ -162,6 +162,34 @@ $('#btnRestore').addEventListener('click', async () => {
   } catch (err) { fail(err); }
 });
 
+/**
+ * List the interfaces this origin already has permission for, without opening
+ * them. This is the diagnostic to reach for when open() fails: it shows the
+ * usage pages Chrome actually enumerated, so a wrong-interface grant is visible
+ * instead of hidden behind "Failed to open HID device".
+ */
+$('#btnScanHid').addEventListener('click', async () => {
+  try {
+    if (!webHidSupported()) throw new Error('WebHID is unavailable — use Chrome or Edge.');
+    const devices = await navigator.hid.getDevices();
+    if (!devices.length) {
+      showOutput('#deviceInfo',
+        'No HID devices are granted to this origin yet.\n' +
+        'Press Connect and choose the APEX 200 entry; permission is remembered after that.');
+      return;
+    }
+    const blocks = devices.map((d, i) => {
+      const head = `#${i}  ${d.productName || '(no product name)'}  ` +
+        `${d.vendorId.toString(16).padStart(4, '0')}:${d.productId.toString(16).padStart(4, '0')}  ` +
+        `opened=${d.opened}`;
+      const cols = (d.collections ?? []).map((c) =>
+        `    usage page 0x${c.usagePage.toString(16)}  usage 0x${c.usage.toString(16)}  ${c.type ?? ''}`);
+      return [head, ...(cols.length ? cols : ['    (no collections reported)'])].join('\n');
+    });
+    showOutput('#deviceInfo', `Granted HID devices (${devices.length}):\n\n${blocks.join('\n\n')}`);
+  } catch (err) { fail(err); }
+});
+
 hid.on('attach', (device) => {
   setStatus(device.productName || 'connected', 'on');
   setConnected(true);

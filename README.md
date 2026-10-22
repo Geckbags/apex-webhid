@@ -44,7 +44,8 @@ silently ignored. If opening the correct interface still fails:
 - Close other browser tabs that already have the keyboard open.
 
 The status pill names the failure and the Device tab's trace shows the
-collections the browser actually exposed.
+collections the browser actually exposed. **Scan granted HID devices** lists
+every interface Chrome remembers permission for, without opening any of them.
 
 ## CLI
 
