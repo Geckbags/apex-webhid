@@ -3,6 +3,10 @@
 Open-source replacement for the ANT ESPORTS APEX 200 Windows software. A static
 web page (no build step) plus a hidraw CLI for Linux.
 
+**Live app:** <https://geckbags.github.io/apex-webhid/> — GitHub Pages over HTTPS,
+which is a secure context, so WebHID works. Use Chrome or Edge on a desktop;
+Firefox and Safari do not implement WebHID.
+
 The protocol was recovered from `GameKeyboard.exe` by static analysis. See
 [PROTOCOL.md](PROTOCOL.md) — 39 send opcodes and 40 dispatched responses, all
 classified, with confidence labelled per claim. Response opcode is exactly
