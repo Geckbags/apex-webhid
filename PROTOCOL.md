@@ -137,23 +137,23 @@ data. `WRITE` frames mutate device state.
 | `0x14` | sendSetEffectLightAll | **W** | N x 8B effect record, no prefix (§8.21.1) |
 | `0x16` | sendGetCustomLight | R | none |
 | `0x17` | sendGetEffectLight | R | 1B: effect index |
-| `0x18` | sendGetEffectLightName | R | 1B: page |
+| `0x18` | sendGetEffectLightName | R | 1B: name-set selector (`0` English/default, `1`, `7`); **not** an effect index (§8.23.2) |
 | `0x19` | sendSelectEffectLight | **W** | 1B: effect index |
 | `0x20` | sendSetKeyboardConfig (A) | **W** | `[layer][firstKeyItem]` + N x 3B `[type,lValue,hValue]` (§8.21.3) |
 | `0x22` | sendAddHighKey | **W** | `[key][type]` + type-specific data; record 6/11/19/4/4/5B (§8.3.1) |
 | `0x23` | sendSetHighKey | **W** | paged: 19B per slot, ≤3 slots; frame `[page][lastPage][0][LEN]` (§8.21.8) |
 | `0x24` | sendSetKeyboardConfig (B) | **W** | `[layer]` + N-byte caller list (§8.21.4) |
-| `0x25` | sendDelHighKey | **W** | 1B: `0x24A` |
+| `0x25` | sendDelHighKey | **W** | 1B: key item (`0x24A`), **not** a table index |
 | `0x26` | sendSetTriggerConfig | **W** | `[trigger lo][trigger hi]` + key-index list (§8.21.5) |
 | `0x27` | sendSetQuickTriggerConfig | **W** | N x 8B `[keyItem,0,model,quick,qt u16,rt u16]` (§8.21.5) |
 | `0x28` | sendSetTriggerConfigAll | **W** | `[firstKeyItem][count]` + N x 8B full record (§8.21.5) |
-| `0x2A` | sendGetKeyboardConfig | R | 1B: `0xC0` |
-| `0x2B` | sendGetHighKey | R | none |
+| `0x2A` | sendGetKeyboardConfig | R | 1B: keymap layer (`0xC0`, 0 or 1) |
+| `0x2B` | sendGetHighKey | R | none; replies with fixed 19B slots (§8.3.5) |
 | `0x2C` | sendGetTriggerConfig | R | none |
-| `0x40` | sendSetMacroConfig | **W** | 2B: `0x108`,`0x5C` |
+| `0x40` | sendSetMacroConfig | **W** | paged: `[slot][count]` + count x 6B; 9 records per frame (§8.10.3) |
 | `0x41` | sendDelMacroConfig | **W** | 1B: `0x108` |
-| `0x42` | sendGetMacroConfig | R | 1B: `0x108` |
-| `0x50` | sendSetWholeParam | **W** | 13B: `0xFF`,10B,`0xFF`,`0xFF` |
+| `0x42` | sendGetMacroConfig | R | 1B: macro slot (`0x108`, 0..9); one slot per request |
+| `0x50` | sendSetWholeParam | **W** | 20B (`LEN=0x14`): `[0xFF]` + 10B struct + 9 x `0xFF` |
 | `0x52` | sendGetCalibrationState | R | none |
 | `0x53` | sendSetReportCalibration | **W** | 1B: `0x298` |
 | `0x54` | sendSaveCalibration | **W** | none |
@@ -166,7 +166,7 @@ data. `WRITE` frames mutate device state.
 | `0x5E` | sendGetWholeParam | R | none |
 | `0x60` | sendDownloadFirewwareKeyboard | **W** | firmware chunk |
 | `0x61` | sendResetKeyboard | **W** | 2B: `0x5A`,`0xA5` |
-| `0x62` | sendGetProductInfo | R | 7B |
+| `0x62` | sendGetProductInfo | R | 7B: `[0, year, month, day, hour, minute, second]` (§8.23.3) |
 | `0x63` | receiveDownloadFirewareKeyboardEnd | R | 8B: `0x2DC`…`0x2DF`,`0x2D8`…`0x2DB` |
 | `0x65` | sendDownloadFirewareData | **W** | firmware chunk |
 | `0x66` | sendDownloadFirewareDataEnd | **W** | 8B: `0x2DC`…`0x2DF`,`0x2D8`…`0x2DB` |
@@ -686,10 +686,21 @@ inferred. Reads only — nothing was written to the keyboard.
 ### Paging behaviour
 
 The device **does not stream** a multi-page answer. It sends page `n` only when
-`param1 == n` is requested, and reports progress in the response header's
-`frame`/`total`. `param2` is the record-count limit (85 = all keys; `param2 = 1`
-gets no reply at all). Page 0 of several commands returns a single byte `0x0D`
-= 13 — the effect/profile count.
+it is asked for, and reports progress in the response header's `frame`/`total`.
+
+The vendor app asks for page **1** first: every read initiator writes
+`sender+0x59/+0x5A = 0x0101`, so the first frame carries `[2]=1 [3]=1`
+(`FUN_1400af5d0` for `0x2B`, and the same pattern for the other reads). On each
+reply the handler sets `[2] = response frame + 1` and `[3] = response total`
+before re-entering the builder (`FUN_140098b90`; §8.23.1). That is the sequence
+`readAll()` implements.
+
+The CLI's `read` tool starts at page 0; the firmware accepts 0 as an alias for
+the first page, and page 0 is a count/probe page on some commands (several
+return a single byte `0x0D` = 13, and `0x18` page 0 is a 16-byte blob). Page 0
+is not part of the vendor app's read sequence, so the driver does not request
+it. The CLI's earlier `--p2 1` no-reply observation was made on that page-0
+probe, not on the vendor app's page-1/1 request.
 
 | Cmd | Response | Pages | Notes |
 |---|---|---:|---|
@@ -852,10 +863,14 @@ the second byte:
 
 ```
 [0]=0xFA [1]=0x22 [2]=0x01 [3]=0x01 [4]=0x00 [5]=LEN   (LEN is per-type)
-[6]=sender+0x24A          the key
+[6]=sender+0x24A          the key item
 [7]=sender+0x24B          TYPE — selects the record shape
 [8..]=type-specific data from sender+0x24C onward
 ```
+
+This is the **write** shape. `0x2B` does not return these variable-length
+records: its readback is a sequence of fixed 19-byte slots, the same slot shape
+`0x23` writes (§8.3.5).
 
 ### 8.3.2 The type codes
 
@@ -871,7 +886,7 @@ QOksAddDialog    mov DWORD PTR [rdi+0x40],0x000004ff   -> byte1 = 4
 QSocdAddDialog   mov DWORD PTR [rdi+0x40],0x000005ff   -> byte1 = 5
 ```
 
-| Type | Modifier | Dialog | Record len | Data bytes | Struct sources, in wire order |
+| Type | Modifier | Dialog | `0x22` record len | Data bytes | Struct sources, in wire order |
 |---:|---|---|---:|---:|---|
 | `0` | **TGL** Toggle | `QTglAddDialog` | 6 | 4 | `0x24C`,`0x24D`,`0x24E`,`0x24F` |
 | `1` | **MT** Hold/Click | `QMtAddDialog` | 11 | 9 | `0x24C`..`0x250`,**`0x252`**,**`0x251`**,**`0x253`**,`0x254`,`0x255` |
@@ -884,12 +899,15 @@ The lengths come from the branch table in the frame builder at `0x14009e380`:
 types 0/1/2 set `LEN` to `6`/`0x0B`/`0x13`, types 3 and 4 both to `4`, and type 5
 to `5`. Any type outside 0-5 sends `LEN = 0`, i.e. an empty record.
 
-**MT's data is 9 bytes, not 10.** Counting the `mov` pairs in the branch at
-`0x14009e45a` gives exactly nine loads (`0x24C`,`0x24D`,`0x24E`,`0x24F`,`0x250`,
-`0x252`,`0x251`,`0x253`,`0x254`,`0x255` is ten, but the last one at `0x14009e4ec`
-writes to `frame[0x11]`, which is **past** the declared `LEN=0x0B` — it is
-unreachable payload and must not be counted). This is the kind of off-by-one that
-a "looks about right" implementation would ship.
+**In the `0x22` record, MT's data is 9 bytes, not 10.** Counting the `mov` pairs
+in the branch at `0x14009e45a` gives ten loads (`0x24C`,`0x24D`,`0x24E`,`0x24F`,
+`0x250`,`0x252`,`0x251`,`0x253`,`0x254`,`0x255`), but the last one at
+`0x14009e4ec` writes to `frame[0x11]`, which is **past** the declared `LEN=0x0B`
+— it is unreachable payload and must not be counted. This is the kind of
+off-by-one that a "looks about right" implementation would ship.
+
+The fixed-slot `0x23`/`0x2B` shape has no such truncation: it carries all ten
+MT data bytes. Do not reuse the `0x22` length table for the readback.
 
 Guessing here would have been actively dangerous: the dialogs are laid out in
 memory as DKS, MT, TGL, RS, SOCD, OKS but their codes run **2, 1, 0, 3, 5, 4**.
@@ -917,6 +935,42 @@ Type 1 (MT) emits `0x252` **before** `0x251`, so its data bytes are out of order
 on the wire relative to the struct. This is the same class of non-linear ordering
 as the `0x13` permutation in §6.2: a straight struct copy transposes two fields
 silently. The only safe route is to build the record explicitly by index.
+
+### 8.3.5 High-key readback `0x2B` — fixed 19-byte slots
+
+`0x2B` is **not** a variable-length read. The `0xAB` handler `FUN_140098b90`
+computes `LEN / 19` (magic `0xAF286BCB`) and walks the response payload with
+stride `0x13`. Each entry is exactly the 19-byte slot `0x23` writes (§8.21.8):
+
+```
+slot[0] = key item
+slot[1] = modifier type (0..5)
+slot[2..] = type-specific data, zero padded
+```
+
+The handler's type switch copies exactly the slot widths from §8.21.8:
+
+| Type | Modifier | Data bytes in the slot | Slot bytes 2..18 |
+|---:|---|---:|---|
+| `0` | TGL | 4 | 4 data, 13 zero |
+| `1` | MT | 10 | 10 data, 7 zero |
+| `2` | DKS | 17 | 17 data, 0 zero |
+| `3` | RS | 2 | 2 data, 15 zero |
+| `4` | OKS | 2 | 2 data, 15 zero |
+| `5` | SOCD | 3 | 3 data, 14 zero |
+
+So the readback carries all ten MT data bytes, including `src[0xB]` that the
+`0x22` record cannot carry. The decoder must use the fixed stride, not the
+`0x22` length table; treating slot byte 0 as a type is the specific mistake this
+section exists to prevent.
+
+`parseHighKeySlot()` and `decodeHighKeyRecords()` in `js/protocol.js` implement
+the fixed-slot layout. They report a page whose length is not a multiple of 19,
+and mark an unknown type rather than guessing its width.
+`ApexHid.decodeHighKeyPages()` delegates to the same decoder.
+
+The first request is page 1/total 1, and paging follows the response fields
+(§7, §8.23.1).
 
 ### 8.4 Hidden: wireless transport switching
 
@@ -1133,7 +1187,7 @@ For contrast, these were open earlier in this work and are now closed:
 | The app's own names for the five frame fields: order/frame/total/length/data | §8.16 |
 | `0x2A` keymap carries a `layer`; `0x42` macro carries an `index` | §8.16.1 |
 | Response-to-handler map: which class reacts to each response | §8.19 |
-| Device snapshot: all ten tables read to JSON, plus the `0x16` per-key colour decoder | §8.17 |
+| Device snapshot: all ten tables read to JSON (both keymap layers, SyncConfigUtil's `0xFF` current-effect read) | §8.17 |
 | Snapshot keeps raw bytes *and* a decoded view; decoders never throw | §8.17.1 |
 | Keymap record is 4 bytes `keyItem,type,hValue,lValue`, confirmed both directions; `modifier`/`layer` names were wrong | §8.18 |
 | Keymap wire order is **permuted** — `[type, lValue, hValue]`, not schema order; `hValue` carries the usage | §8.18.3 |
@@ -1268,11 +1322,35 @@ write.
 
 `0x41 delMacroConfig` is simpler: `LEN = 1`, payload byte 0 is the slot.
 
-**Still unknown:** what the six bytes mean. A macro is a sequence of keystrokes,
-which six bytes plainly is not — the sequence itself almost certainly lives in the
-device and is referenced by an id in these bytes. The driver therefore edits macro
-records byte-wise rather than presenting a keystroke editor that would be fiction:
-read with `0x42`, edit, write back with `0x40`.
+The six bytes are the step model from the `key_macro_table` DDL (§8.12.1):
+`type`, `state`, `lValue`, `hValue`, and a 16-bit `time`. Each record is one
+keystroke/step; the page's record array is the sequence, not an opaque id. The
+driver exposes those fields and still carries unknown type/state bytes through
+verbatim: read with `0x42`, edit, write back with `0x40`.
+
+### 8.10.3 `0x40` is paged — nine records per frame
+
+The `0x40` initiator is `FUN_1400b0e20`. It sets:
+
+```
++0x5B = (DAT_140194994 - 2) / 6 = (58 - 2) / 6 = 9   records per full page
++0x5A = 1                                            first page
++0x59 = ((count - 1) / 9) + 1                        last page
+```
+
+`DAT_140194994` is the 58-byte payload budget. The builder puts 9 records on
+every non-last page and the remainder on the last:
+
+```
+count = (page == lastPage) ? totalRecords - (page - 1) * 9 : 9
+LEN   = 6 * count + 2
+```
+
+The `0xC0` handler `FUN_14009c5c0` advances `page+1` and re-enters the builder
+after each ack. `pageMacroPayloads()` implements the split and `setMacro()`
+awaits each page. An empty record list takes the initiator's other branch, which
+only emits a Qt completion signal and sends **no** `0x40` frame; the JS API
+refuses it rather than inventing a zero-record frame.
 
 ### 8.11 Per-key colour `0x10` — prefix decoded
 
@@ -1778,17 +1856,30 @@ per-slot implementations stay behind the signal/slot layer, and the gates in
 
 ### 8.17 Snapshot and backup (the WebHID counterpart to SyncConfigUtil)
 
-`SyncConfigUtil` collects ten tables before the app pushes a configuration back
-(§8.19). The WebHID app now does the same as an explicit **Device snapshot**: one
-button reads all ten and offers them as JSON, with every payload kept as a byte
-array so nothing is lost to formatting.
+`SyncConfigUtil` collects ten table **types** before the app pushes a
+configuration back (§8.19). The WebHID app now does the same as an explicit
+**Device snapshot**: one button reads them and offers them as JSON, with every
+payload kept as a byte array so nothing is lost to formatting.
 
-All ten calls are reads. Nothing in the feature can write, which is the point -
-the only recovery from a bad write on this board is a factory reset, and this is
-the only record of the current state that can be made from the host. It also
-adds a decoder the project did not have: `parseCustomLight`, five bytes per key
-from `custom_light_table` (§8.12), which finally makes the `0x16` readback
-readable.
+Three details follow the sync sequence exactly rather than a convenient
+default:
+
+- **Both keymap layers.** Sync reads `0x2A` layer 0 (`FUN_1400b5650`) and then
+  layer 1 (`FUN_1400b5850`) before the high-key read, so the snapshot carries
+  `keyboardConfig` (layer 0) and `keyboardConfig1` (layer 1) as separate
+  sections - eleven reads for the ten table types.
+- **The current effect, not effect 0.** Sync's `0x17` initiator is called with
+  `0xFF` (`FUN_1400b5b80` -> `FUN_1400af540`), asking the board for the active
+  effect's config; the snapshot records whatever effect the reply names.
+- **The `0x18` name set** starts at page 1 with the English/default selector
+  (§8.23.2); page 0's undecoded blob is not part of the vendor read.
+
+All of the calls are reads. Nothing in the feature can write, which is the
+point - the only recovery from a bad write on this board is a factory reset,
+and this is the only record of the current state that can be made from the
+host. It also adds a decoder the project did not have: `parseCustomLight`,
+five bytes per key from `custom_light_table` (§8.12), which finally makes the
+`0x16` readback readable.
 
 #### 8.17.1 The snapshot keeps both views
 
@@ -1796,8 +1887,8 @@ The JSON carries two parallel sections, and this is deliberate:
 
 - **`data`** - each payload as a byte array. Faithful, lossy-free, and the thing
   to trust if a decoder is ever wrong.
-- **`decoded`** - this project's reading of those bytes, for the six tables that
-  have a decoder.
+- **`decoded`** - this project's reading of those bytes, for the eight decoded
+  sections (the keymap is one section per layer).
 
 Keeping both rather than choosing matters. A backup that could only be read back
 through the same decoder that produced it would be no backup at all - a decoder
@@ -1809,11 +1900,12 @@ failed read, and for malformed input. It never throws: a decoder must not be abl
 to fail a snapshot, because the raw bytes are the backup and a crash would
 destroy them.
 
-`decodeHighKeyRecords` was added for this and is worth a note. High-key records
-are **variable length** (§8.3 - six types, lengths 6/11/19/4/4/5), so the page
-walker advances by each record's declared length rather than a fixed stride. An
-unknown type byte or a truncated tail produces a one-entry report carrying the
-reason, rather than being skipped or read past the end of the page.
+`decodeHighKeyRecords` was added for this and is worth a note. The `0x2B`
+**readback** is not made of the variable-length `0x22` records: it is a sequence
+of fixed 19-byte slots (§8.3.5). `FUN_140098b90` divides the payload length by 19
+and advances with stride `0x13`. A page whose length is not a multiple of 19
+produces a one-entry report carrying the reason, and an unknown type is marked
+undecoded rather than being skipped or guessed at.
 
 Note the asymmetry this makes explicit: the `0x16` **read** is 5 bytes per key
 (`keyItem, light, R, G, B`) while the `0x11` **write** is columnar and
@@ -2700,6 +2792,91 @@ This maps the entire import onto the WebHID driver surface already documented in
 `setMacro` (`0x40`) and `setTriggerConfig` (`0x28`). Profile import remains
 gated until each of those writes has been hardware-validated; the first test is
 still read -> write byte-identical -> read and compare.
+
+### 8.23 Read framing and per-object payloads
+
+Four reads take a one-byte sub-object selector at frame[6]. It comes from a
+fixed sender field, never from the page counter:
+
+| Cmd | Read | Field | Source | Verified values |
+|---:|---|---|---|---|
+| `0x17` | effect config | effect index | `+0xB0` | 0..11 |
+| `0x18` | effect names | name-set selector | `FUN_14005ea80(DAT_140197008)` | 0, 1, 7 |
+| `0x2A` | keymap | layer | `+0xC0` | 0 or 1 |
+| `0x42` | macro | macro slot | `+0x108` | 0..9 |
+
+Each has its own builder (`FUN_1400a2410`, `FUN_1400a2900`, `FUN_1400a3320`,
+`FUN_1400a3810` respectively), and each writes `LEN=1` with the value at
+frame[6]. `0x2B`, `0x57`, `0x5B`, `0x5E` and `0x62` use different shapes; `0x62`
+is covered in §8.23.3.
+
+#### 8.23.1 Read page numbering is 1-based
+
+Every read initiator sets `sender+0x59/+0x5A = 0x0101` before the first builder
+call; `FUN_1400af5d0` is the `0x2B` instance. The builder copies `+0x5A` to
+frame[2] and `+0x59` to frame[3], so the first request is page **1**, total
+**1**.
+
+On a reply the handler reads the response frame and total. When `frame < total`
+it sets `+0x5A = frame + 1`, `+0x59 = total`, clears `+0x48`, and calls the
+builder directly:
+
+| Cmd | Handler | Next-page action |
+|---:|---|---|
+| `0x2B` | `FUN_140098b90` | `+0x5A = frame+1`, `+0x59 = total`, call `FUN_1400a2e50` |
+| `0x23` | `FUN_14009bc10` | `+0x5A = frame+1`, `+0x59 = total`, call `FUN_1400a7b40` |
+| `0x40` | `FUN_14009c5c0` | `+0x5A = frame+1`, `+0x59 = total`, call `FUN_1400a96a0` |
+
+`readAll()` mirrors this: request 1/1, then page = response frame + 1 and total
+= response total. The CLI's page-0 probe and the vendor app's page-1 request
+are different sequences; §7 explains why the driver follows the app.
+
+#### 8.23.2 `0x18`'s byte is a name-set selector
+
+`FUN_14005ea80` maps the app's language setting to 1, 2 or 3:
+
+```
+setting 1 -> 1
+setting 2 -> 2
+setting 3 -> 3
+otherwise QLocale::language:
+  0x3A  -> 1
+  0x4B  -> 2      (English)
+  0x136 -> 3
+  other -> 2
+```
+
+`FUN_1400a2900` then maps that result to the wire byte:
+
+```
+result 2 -> 0
+result 3 -> 7
+otherwise -> 1
+```
+
+English/default therefore sends **0**; the other two selectable sets are 1 and
+7. This byte is not an effect index and not a page number. The driver exposes
+it as `readEffectNames(nameSet)` / `getEffectLightName(nameSet)` and rejects
+values outside 0/1/7.
+
+#### 8.23.3 `0x62`'s request is the host clock
+
+`FUN_1400a3d00` writes `LEN=7`:
+
+```
+frame[6]  = 0
+frame[7]  = (year & 0xff) + 0x30, truncated to 8 bits
+frame[8]  = month
+frame[9]  = day
+frame[10] = hour
+frame[11] = minute
+frame[12] = second
+```
+
+The assembly is literally `QDate::year` in EAX, `ADD AL,0x30`, store AL. It is
+**not** ASCII and not the full year: for 2026 it sends `26` (0x1A), not `'J'`
+and not `0x4A`. Month through second are plain binary. The response (`0xE2`) is
+the 56-byte product-info block in §7.
 
 ### 11.1 How the frame inventory was built
 

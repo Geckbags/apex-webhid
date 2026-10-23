@@ -92,7 +92,7 @@ Both frontends therefore:
 | Keymap reference diff | working — a read alone cannot tell you what is remapped |
 | Global settings: polling rate, dead keys, shake, sports mode, layer (0x50/0x5E) | working, read-modify-write, readback verified |
 | Trigger + calibration reads | working |
-| Device snapshot: all 10 config tables to JSON | working — read-only backup |
+| Device snapshot: all 10 config tables (both keymap layers) to JSON | working — read-only backup |
 | Product info, report descriptor | working |
 | Macros M1-M10: read, write, delete | working — real keystroke editor, readback verified |
 | Six advanced modifiers (DKS/MT/TGL/RS/SOCD/OKS) | working — all six codes decoded |
@@ -129,8 +129,10 @@ dead keys, shake level, calibration, sports mode and current layer. PROTOCOL.md
 8.12-8.14 has the DDL and the offsets.
 
 Before changing anything on this board, take a **Device snapshot**. It reads all
-ten configuration tables in one pass and saves them as JSON with every payload
-kept as bytes, plus a decoded view for the six tables that have one. Nothing in it can write — and since the only recovery from a bad
+ten configuration table types in one pass — both keymap layers and the current
+effect, exactly as the Windows app's `SyncConfigUtil` reads them — and saves the
+result as JSON with every payload kept as bytes, plus a decoded view for the
+eight sections that have one. Nothing in it can write — and since the only recovery from a bad
 write is a factory reset, it is the only record of the current state that can be
 made from the host. It is the WebHID counterpart to the Windows app's
 `SyncConfigUtil`.

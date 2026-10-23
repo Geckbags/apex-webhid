@@ -305,8 +305,9 @@ export function decodeSnapshotSection(name, value) {
         return p && p.length >= 8 ? parseEffectConfig(p) : null;
       }
       case "effectNames":
-        return pages ? parseEffectNames(pages) : null;
+        return pages ? parseEffectNameSlots(pages) : null;
       case "keyboardConfig":
+      case "keyboardConfig1":
         return pages ? parseKeymap(pages) : null;
       case "highKey":
         return pages ? decodeHighKeyRecords(pages) : null;
@@ -325,31 +326,78 @@ export function decodeSnapshotSection(name, value) {
 }
 
 /**
- * High-key bindings, decoded one record at a time.
+ * Parse one fixed 19-byte high-key slot.
+ *
+ * `0x2B` does **not** return variable-length `0x22` records. Its handler
+ * `FUN_140098b90` divides the response length by 19 and walks the payload with
+ * a 0x13 stride, so every entry is the same 19-byte slot the `0x23` bulk write
+ * uses: `[0]=key`, `[1]=type`, then the type-specific data, zero padded.
+ * (Confirmed in the 0xAB dispatch path; see PROTOCOL.md 8.3.5.)
  *
  * Lives here rather than in the driver because the snapshot decoder needs it too,
  * and a snapshot must not depend on the transport layer being loaded.
+ *
+ * @param {Uint8Array} slot exactly {@link HIGH_KEY_SLOT_LEN} bytes
+ */
+export function parseHighKeySlot(slot) {
+  if (!slot || slot.length !== HIGH_KEY_SLOT_LEN) {
+    throw new RangeError(
+      `high-key slot is ${slot ? slot.length : 0} bytes, expected ${HIGH_KEY_SLOT_LEN}`);
+  }
+  const key = slot[0];
+  const type = slot[1];
+  const spec = MODIFIER_BY_TYPE[type] ?? null;
+  const dataLen = HIGH_KEY_SLOT_DATA_LEN[type];
+  const known = dataLen !== undefined;
+  const dataEnd = known ? 2 + dataLen : HIGH_KEY_SLOT_LEN;
+  const padding = slot.subarray(dataEnd);
+  return {
+    key,
+    type,
+    modifier: spec ? spec.name : `unknown_${type}`,
+    label: spec ? spec.label : `unknown type ${type}`,
+    length: HIGH_KEY_SLOT_LEN,
+    expectedLength: HIGH_KEY_SLOT_LEN,
+    lengthOk: known,
+    dataLength: known ? dataLen : null,
+    data: Array.from(slot.subarray(2, dataEnd)),
+    padding: Array.from(padding),
+    paddingZero: known ? padding.every((b) => b === 0) : null,
+    raw: Array.from(slot),
+  };
+}
+
+/**
+ * Decode a `0x2B` high-key readback.
+ *
+ * Each page is a whole number of 19-byte slots (`FUN_140098b90` computes
+ * `LEN / 19`), so this walks the fixed stride instead of self-delimiting
+ * records. A page whose length is not a multiple of 19 is reported rather than
+ * silently misaligned.
+ *
+ * @param {Uint8Array[]} pages raw payloads from `readHighKeys()`
  */
 export function decodeHighKeyRecords(pages) {
   const out = [];
+  let slotIndex = 0;
   pages.forEach((page, pageIndex) => {
-    // Each high-key record is its own length (PROTOCOL.md 8.3), so walk the page
-    // using the declared length rather than a fixed stride.
-    let at = 0;
-    while (at + 2 <= page.length) {
-      const mod = page[at];
-      const def = MODIFIER_BY_TYPE[mod];
-      if (!def) {
-        out.push({ page: pageIndex, offset: at, error: `unknown modifier type 0x${mod.toString(16)}` });
-        break;
-      }
-      const len = def.recordLen;
-      if (at + len > page.length) {
-        out.push({ page: pageIndex, offset: at, error: `truncated ${def.name}: need ${len}, have ${page.length - at}` });
-        break;
-      }
-      out.push({ page: pageIndex, offset: at, ...parseHighKeyRecord(page.subarray(at, at + len), def) });
-      at += len;
+    if (page.length % HIGH_KEY_SLOT_LEN !== 0) {
+      out.push({
+        page: pageIndex,
+        offset: 0,
+        slot: slotIndex++,
+        error: `payload is ${page.length} bytes, not a multiple of the ${HIGH_KEY_SLOT_LEN}-byte slot`,
+        raw: Array.from(page),
+      });
+      return;
+    }
+    for (let at = 0; at < page.length; at += HIGH_KEY_SLOT_LEN) {
+      out.push({
+        page: pageIndex,
+        offset: at,
+        slot: slotIndex++,
+        ...parseHighKeySlot(page.subarray(at, at + HIGH_KEY_SLOT_LEN)),
+      });
     }
   });
   return out;
@@ -606,9 +654,13 @@ export const MODIFIER_BY_TYPE = Object.fromEntries(
 
 /**
  * `0x22 addHighKey` total record length (including the 2-byte key+type prefix)
- * by modifier type. Recovered from the frame builder's branch on sender+0x24B.
- * Type 3 was not extracted and is deliberately absent: guessing its length would
- * produce a malformed frame. See PROTOCOL.md 8.3.1.
+ * by modifier type, from the six-way branch table in `FUN_14009e380`:
+ * `LEN = 6, 11, 19, 4, 4, 5`.
+ *
+ * Type 1 (MT) loads ten data bytes into the report, but `LEN = 11` makes only
+ * the first nine part of the record; the tenth byte lands at frame offset 0x11,
+ * past the declared record. `0x23`'s 19-byte slot does carry all ten.
+ * See PROTOCOL.md 8.3.1.
  */
 export const HIGH_KEY_LENGTH = {
   0: 6,
@@ -801,7 +853,12 @@ export function buildSetHighKeyPages(records) {
   return pages;
 }
 
-/** Byte layout of a decoded `0x22` record, for interpreting a `0x2B` readback. */
+/**
+ * Decode one variable-length `0x22` high-key record.
+ *
+ * This is the write record (`[key][type][data...]`), not the `0x2B` readback:
+ * readback entries are fixed 19-byte slots, use {@link parseHighKeySlot}.
+ */
 export function parseHighKeyRecord(rec) {
   if (!rec || rec.length < 2) throw new RangeError('need at least 2 bytes');
   const type = rec[1];
@@ -950,6 +1007,48 @@ export function buildMacroPayload({ slot, records = [] }) {
     }
   });
   return payload;
+}
+
+/**
+ * Records per `0x40` frame.
+ *
+ * `FUN_1400b0e20` computes `(DAT_140194994 - 2) / 6`; `DAT_140194994` is the
+ * 58-byte payload budget, so a frame carries `(58 - 2) / 6 = 9` records. It then
+ * sets `page = 1` and `lastPage = ceil(count / 9)`.
+ */
+export const MACRO_RECORDS_PER_FRAME = Math.floor((MAX_PAYLOAD - 2) / MACRO_RECORD_LEN);
+
+/**
+ * Split macro records into the pages the Windows app sends.
+ *
+ * `FUN_1400b0e20` sends `page = 1`, `lastPage = ceil(count / 9)`; the builder
+ * puts 9 records on every non-last page and the remainder on the last. An empty
+ * record list is not sent at all: the initiator takes a different branch that
+ * only emits a completion signal, so this function refuses it rather than
+ * inventing a zero-record frame.
+ *
+ * @param {{slot: number, records: (number[]|Uint8Array)[]}} opts
+ * @returns {{payload: Uint8Array, page: number, lastPage: number, count: number}[]}
+ */
+export function pageMacroPayloads({ slot, records = [] }) {
+  if (!records.length) {
+    throw new RangeError('a macro write needs at least one record; use 0x41 to clear a slot');
+  }
+  const lastPage = Math.ceil(records.length / MACRO_RECORDS_PER_FRAME);
+  const pages = [];
+  for (let i = 0; i < lastPage; i += 1) {
+    const chunk = records.slice(
+      i * MACRO_RECORDS_PER_FRAME,
+      (i + 1) * MACRO_RECORDS_PER_FRAME,
+    );
+    pages.push({
+      payload: buildMacroPayload({ slot, records: chunk }),
+      page: i + 1,
+      lastPage,
+      count: chunk.length,
+    });
+  }
+  return pages;
 }
 
 /** Invert {@link MACRO_WIRE_ORDER}, turning a `0x42` readback back into struct order. */
@@ -1312,9 +1411,9 @@ export const ORPHAN_REQUESTS = [CMD.DOWNLOAD_FIRMWARE_DATA, CMD.DOWNLOAD_FIRMWAR
 /** Human-readable names, keyed by opcode (request and response share a namespace). */
 export const OPCODE_NAME = {
   0x10: 'set_custom_light',
-  0x11: 'set_effect_light_all',
+  0x11: 'set_custom_light_all',
   0x13: 'set_effect_light',
-  0x14: 'set_effect_light_all_2',
+  0x14: 'set_effect_light_all',
   0x16: 'get_custom_light',
   0x17: 'get_effect_light',
   0x18: 'get_effect_light_name',
@@ -1419,21 +1518,27 @@ export const PRODUCT = {
 
 /**
  * Response paging. The device does **not** stream a multi-page answer: it sends
- * page `n` only when asked for it. `param1` is the zero-based page number, and the
- * response header's `frame`/`total` fields report the progress.
+ * a page only when asked for it.
+ *
+ * The vendor app's first request is page 1, total 1: every read initiator sets
+ * sender+0x59/+0x5A to 0x0101 before the first builder call
+ * (`FUN_1400af5d0` for `0x2B`). The reply's `frame`/`total` fields drive the
+ * rest; the handler then sets page = frame + 1 and total = response total
+ * (`FUN_140098b90`). `readAll()` in the driver mirrors that exact sequence.
+ *
+ * The CLI's page-0 probe is a separate sequence. On real hardware, page 0 is a
+ * count/probe page on some commands (several return a single `0x0D` = 13, and
+ * `0x18` page 0 is a 16-byte blob). It is not part of the vendor app's read.
  *
  * Observed on real hardware:
- *   - `0x18` (effect names):   4 pages, page 0 is a 16-byte blob, pages 1..3 carry
- *                              3 names each in 18-byte fields
+ *   - `0x18` (effect names):   4 pages, pages 1..4 carry 3 names each in
+ *                              18-byte fields; page 0 is a 16-byte blob
  *   - `0x16` (custom light):   6 pages
  *   - `0x2A` (key config):     5 pages, 3-byte records `[keycodeHi? ...]`
  *   - `0x2C` (trigger config): 12 pages, 7-byte records; first byte of each page
  *                              is `page * 7`
  *   - `0x5B` (calibration ADC):3 pages, 16-bit little-endian ADC per key
  *   - `0x57` (config table):   5 pages, profile names, e.g. "KeyLayer1"
- *
- * Page 0 of several commands returns a single byte `0x0D` = 13, the effect /
- * profile count.
  */
 export const PAGING = {
   END_INDEX: 0x59,
@@ -1505,6 +1610,27 @@ export function parseEffectNamePage(payload) {
 /** Convenience wrapper returning just the names from one page. */
 export function parseEffectNames(payload) {
   return parseEffectNamePage(payload).names;
+}
+
+/**
+ * Parse every `0x18` page into `{index, name}` slots.
+ *
+ * Page order does not matter: each page carries the global index of its first
+ * name. The vendor app requests pages 1..n and never page 0; page 0 is the
+ * 16-byte blob for the thirteenth name and contributes no parsed slots.
+ *
+ * @param {Uint8Array[]} pages
+ * @returns {{index: number, name: string|null}[]}
+ */
+export function parseEffectNameSlots(pages) {
+  const slots = new Map();
+  for (const page of pages) {
+    const { index, names } = parseEffectNamePage(page);
+    names.forEach((name, i) => slots.set(index + i, name || null));
+  }
+  return [...slots.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, name]) => ({ index, name }));
 }
 
 /**

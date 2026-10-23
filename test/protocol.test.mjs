@@ -23,13 +23,14 @@ import {
   RESPONSE_DISPATCH, UNSOLICITED_RESPONSES, REQUESTS_WITHOUT_RESPONSE,
   OPCODE_NAME,
   responseOpcode, awaitsResponse, isUnsolicited,
-  buildMacroPayload, parseMacroRecords, MACRO_WIRE_ORDER, MACRO_RECORD_LEN,
+  buildMacroPayload, pageMacroPayloads, MACRO_RECORDS_PER_FRAME,
+  parseMacroRecords, MACRO_WIRE_ORDER, MACRO_RECORD_LEN,
   MACRO_SLOT_MIN, MACRO_SLOT_MAX,
   decodeMacroRecord, encodeMacroRecord, MACRO_FIELD, MACRO_STATE, MACRO_TIME_MAX,
   decodeSnapshotSection, decodeHighKeyRecords,
   buildFrame, MAGIC, REPORT_SIZE, MAX_PAYLOAD,
   BRIGHTNESS_MIN, BRIGHTNESS_MAX, SPEED_MIN, SPEED_MAX,
-  EFFECT_MIN, EFFECT_MAX, SOCD_MODES,
+  EFFECT_MIN, EFFECT_MAX, EFFECT_NAME_FIELD, SOCD_MODES,
 } from '../js/protocol.js';
 
 let pass = 0, fail = 0;
@@ -320,6 +321,21 @@ console.log('0x40 macro records (PROTOCOL.md 8.10)');
     try { fn(); } catch { threw = true; }
     ok(threw, desc);
   }
+
+  // FUN_1400b0e20: (58 - 2) / 6 = 9 records per frame, page 1, total ceil(n/9).
+  eq(MACRO_RECORDS_PER_FRAME, 9, 'nine records fit the 58-byte payload');
+  const many = Array.from({ length: 19 }, (_, i) => Uint8Array.of(i, 0, 0x04, 0, 0, 0));
+  const pages = pageMacroPayloads({ slot: 2, records: many });
+  eq(pages.map((p) => p.page), [1, 2, 3], 'pages are 1-based and in order');
+  eq(pages.map((p) => p.lastPage), [3, 3, 3], 'every page carries the same lastPage');
+  eq(pages.map((p) => p.count), [9, 9, 1], '9 records on full pages, remainder on the last');
+  eq(pages.map((p) => p.payload.length), [56, 56, 8], 'LEN = 6*count + 2');
+  eq(pages.map((p) => p.payload[0]), [2, 2, 2], 'every page carries the slot');
+  eq(pages.map((p) => p.payload[1]), [9, 9, 1], 'every page carries its record count');
+
+  let emptyThrew = false;
+  try { pageMacroPayloads({ slot: 0, records: [] }); } catch { emptyThrew = true; }
+  ok(emptyThrew, 'an empty macro list is refused, not sent as a zero-record frame');
 }
 
 console.log('0x2A keymap records (PROTOCOL.md section 7)');
@@ -792,6 +808,14 @@ console.log('snapshot sections decode, and never throw (PROTOCOL.md section 8.17
   });
   eq(kc.map((r) => r.name), ['Esc', 'F1'], 'keyboardConfig decodes to key names');
 
+  // The sync path reads both keymap layers, so the snapshot has a section per
+  // layer and both use the same decoder.
+  const kc1 = decodeSnapshotSection('keyboardConfig1', {
+    pages: [new Uint8Array([2, 1, 0x29, 0, 1, 0x3a])],
+  });
+  eq(kc1.map((r) => r.name), ['Esc', 'F1'], 'keyboardConfig1 uses the keymap decoder');
+  eq(kc1.map((r) => r.type), [2, 0], 'and keeps the layer-1 record bytes intact');
+
   // A section with no decoder must be null, not a guess.
   eq(decodeSnapshotSection('productInfo', { payload: [1, 2, 3] }), null,
     'a table with no decoder reports null rather than a guess');
@@ -807,23 +831,63 @@ console.log('snapshot sections decode, and never throw (PROTOCOL.md section 8.17
   eq(decodeSnapshotSection('customLight', { payload: 'not-a-page' }), null,
     'a section without pages decodes to null');
 
-  // High-key records are variable length, so the walker must use each type's
-  // declared length rather than a fixed stride.
-  const tgl = [0x00, 0x04, 0x11, 0x00, 0x00, 0x00];          // 6 bytes
-  const recs = decodeHighKeyRecords([new Uint8Array([...tgl, ...tgl])]);
-  eq(recs.length, 2, 'two variable-length records decoded from one page');
-  eq(recs[0].offset, 0, 'first record at offset 0');
-  eq(recs[1].offset, 6, 'second record starts after the first record length');
+  // 0x2B is fixed 19-byte slots, not the variable 0x22 records. The 0xAB
+  // handler FUN_140098b90 divides LEN by 19 and walks stride 0x13.
+  const tglSlot = new Uint8Array(19);
+  tglSlot.set([0x04, 0x00, 0x11, 0x22, 0x33, 0x44]);
+  const socdSlot = new Uint8Array(19);
+  socdSlot.set([0x05, 0x05, 0x11, 0x22, 0x03]);
+  const recs = decodeHighKeyRecords([new Uint8Array([...tglSlot, ...socdSlot])]);
+  eq(recs.length, 2, 'two 19-byte slots decoded from one page');
+  eq(recs[0].offset, 0, 'first slot at offset 0');
+  eq(recs[1].offset, 19, 'second slot starts at the fixed 19-byte stride');
+  eq(recs[0].key, 0x04, 'slot byte 0 is the key, not the type');
+  eq(recs[0].type, 0x00, 'slot byte 1 is the modifier type');
+  eq(recs[1].modifier, 'socd', 'second slot decodes by its own type');
+  eq(recs[1].data, [0x11, 0x22, 0x03], 'SOCD carries its three data bytes');
+  eq(recs[0].data, [0x11, 0x22, 0x33, 0x44], 'TGL carries four data bytes');
+  eq(recs[0].paddingZero, true, 'the rest of the slot is zero padding');
 
-  // An unknown type must be reported, not skipped past.
-  const bad = decodeHighKeyRecords([new Uint8Array([0xfe, 1, 2])]);
-  eq(bad.length, 1, 'an unknown modifier type produces one report');
-  ok(/unknown modifier/.test(bad[0].error ?? ''), 'and it says the type is unknown');
+  // 0x2B has ten MT data bytes even though the 0x22 record truncates to nine.
+  const mtSlot = new Uint8Array(19);
+  mtSlot.set([0x06, 0x01, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  eq(decodeHighKeyRecords([mtSlot])[0].data.length, 10,
+    '0x2B MT slot carries 10 data bytes (0x22 carries 9)');
 
-  // A truncated trailing record must be reported rather than read past the end.
-  const trunc = decodeHighKeyRecords([new Uint8Array([0x00, 1, 2])]);
-  eq(trunc.length, 1, 'a truncated record produces one report');
-  ok(/truncated/.test(trunc[0].error ?? ''), 'and it says the record is truncated');
+  // A page that is not a whole number of slots is reported, not misaligned.
+  const bad = decodeHighKeyRecords([new Uint8Array(20)]);
+  eq(bad.length, 1, 'a partial slot produces one report');
+  ok(/multiple/.test(bad[0].error ?? ''), 'and it says the page is not slot-aligned');
+
+  // An unknown type must be surfaced, not silently dropped.
+  const unknown = new Uint8Array(19);
+  unknown[0] = 0x11;
+  unknown[1] = 0xfe;
+  const u = decodeHighKeyRecords([unknown]);
+  eq(u.length, 1, 'an unknown modifier type produces one report');
+  eq(u[0].lengthOk, false, 'and the slot is marked undecoded');
+  ok(/unknown/.test(u[0].modifier), 'and it names the unknown type');
+
+  // The snapshot path must use the same fixed-slot decoder.
+  const hk = decodeSnapshotSection('highKey', { pages: [tglSlot] });
+  eq(hk.length, 1, 'snapshot highKey section decodes one slot');
+  eq(hk[0].key, 0x04, 'snapshot highKey keeps the key byte');
+
+  // 0x18 pages decode by their own first-index byte, independent of page order.
+  const namePage = (base, names) => {
+    const enc = new TextEncoder();
+    const page = new Uint8Array(2 + names.length * EFFECT_NAME_FIELD);
+    page[0] = base;
+    page[1] = EFFECT_NAME_FIELD;
+    names.forEach((name, i) => page.set(enc.encode(name), 2 + i * EFFECT_NAME_FIELD));
+    return page;
+  };
+  const en = decodeSnapshotSection('effectNames', {
+    pages: [namePage(3, ['Breath']), namePage(0, ['Close', 'Static'])],
+  });
+  eq(en.map((s) => s.index), [0, 1, 3], 'effect names keep their global page index');
+  eq(en.map((s) => s.name), ['Close', 'Static', 'Breath'],
+    'effect names decode across pages in index order');
 }
 
 console.log('per-key colour read (PROTOCOL.md section 8.12, custom_light_table)');
@@ -872,7 +936,7 @@ console.log('moc blob order is the signal order (PROTOCOL.md section 8.18.1)');
   const fs = await import('node:fs');
   // The target binary lives outside the repo, so this block is skipped rather
   // than failed when it is absent - a checkout without it must still pass.
-  const EXE = process.env.APEX_EXE ?? '/tmp/opencode/apex200/extracted/app/GameKeyboard.exe';
+  const EXE = process.env.APEX_EXE ?? '/tmp/opencode/apex200/app/GameKeyboard.exe';
   if (!fs.existsSync(EXE)) {
     console.log('  skip  moc blob check - target binary not at', EXE);
   } else {

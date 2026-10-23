@@ -282,7 +282,7 @@
         <div class="row" style="margin-top:10px">
           <button id="btnGetLight">Read config (0x17)</button>
           <button id="btnGetLightName">Read names (0x18)</button>
-          <button id="btnReadEffectCount">Effect count (0x17)</button>
+          <button id="btnReadEffectCount">Read current effect (0x17, 0xFF)</button>
           <button id="btnReadEffects">Rebuild name list (0x18)</button>
           <button id="btnCustom">Read per-key raw (0x16)</button>
         </div>
@@ -443,6 +443,9 @@
     <div class="card">
       <h2>Key map</h2>
       <div class="row">
+        <label class="field">Layer (0 = base)
+          <input type="number" id="kLayer" value="0" min="0" max="1">
+        </label>
         <button id="btnReadKeymap">Read key map (0x2A)</button>
         <button id="btnReadWholeParam">Whole parameter dump (0x5E)</button>
         <span class="hint">read-only</span>
@@ -525,7 +528,7 @@
     <div class="card">
       <h2>Fn layer and advanced modifiers</h2>
       <div class="grid">
-        <label class="field">Binding / key index
+        <label class="field">Key item (0x24A, not a table index)
           <input type="number" id="hIndex" value="0" min="0" max="255">
         </label>
         <label class="field">Modifier

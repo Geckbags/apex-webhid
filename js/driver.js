@@ -4,22 +4,19 @@
 // exactly what WebHID supports, so a plain browser page can drive it.
 
 import {
-  VID, PID, VENDOR_USAGE_PAGE, WEBHID_REPORT_ID, REPORT_SIZE, MAGIC, CMD, PRODUCT,
+  VID, PID, VENDOR_USAGE_PAGE, WEBHID_REPORT_ID, REPORT_SIZE, MAGIC, CMD,
   buildFrame, frameToWebHidData, parseResponse, opcodeName, pagedPayloadSize,
-  parseEffectNames, parseEffectNamePage,
+  parseEffectNameSlots,
   commandClass, commandClass as _commandClass, FORBIDDEN_COMMANDS,
-  buildEffectConfig, parseEffectConfig, buildColourConfig, buildHighKeyRecord, buildHighKeyBinding,
-  buildSocdRecord, parseHighKeyRecord, HIGH_KEY_LENGTH,
+  buildEffectConfig, parseEffectConfig, buildColourConfig, buildHighKeyBinding,
+  buildSocdRecord, decodeHighKeyRecords,
   buildSetHighKeyPages, HIGH_KEY_SLOT_LEN, HIGH_KEY_SLOT_PAGE_SIZE,
-  buildMacroPayload, parseMacroRecords, MACRO_SLOT_MIN, MACRO_SLOT_MAX,
+  pageMacroPayloads, parseMacroRecords, MACRO_SLOT_MIN, MACRO_SLOT_MAX,
   responseOpcode, awaitsResponse, RESPONSE_DISPATCH, isUnsolicited,
   parseWholeParams, buildWholeParams, parseCustomLight, buildCustomLightPayload,
-  pageCustomLightPayloads,
+  pageCustomLightPayloads, isValidKeymapLayer,
   BRIGHTNESS_MIN, BRIGHTNESS_MAX, SPEED_MIN, SPEED_MAX,
 } from './protocol.js';
-
-/** Default `param2` for paged reads — the APEX200 has 85 keys. */
-const PRODUCT_KEYS = PRODUCT.keyNumber;
 
 export function webHidSupported() {
   return typeof navigator !== 'undefined' && 'hid' in navigator;
@@ -227,7 +224,10 @@ export class ApexHid {
   async request(cmd, payload = new Uint8Array(0), opts = {}) {
     if (!this.device) throw new Error('Not connected.');
     const {
-      param1 = 0, param2 = 0, timeoutMs = 1000, expectResponse = true,
+      // The Windows app's initiators set sender+0x59/+0x5A to 0x0101 before the
+      // first frame, so every fresh request opens at page/order 1,1. Paged
+      // callers override these with page/total (PROTOCOL.md 8.23).
+      param1 = 1, param2 = 1, timeoutMs = 1000, expectResponse = true,
       allowWrite = false, allowForbidden = false,
     } = opts;
 
@@ -285,10 +285,60 @@ export class ApexHid {
 
   // ---- High-level helpers -------------------------------------------------
 
-  getProductInfo() { return this.request(CMD.GET_PRODUCT_INFO); }
-  getKeyboardConfig() { return this.request(CMD.GET_KEYBOARD_CONFIG); }
-  getEffectLight() { return this.request(CMD.GET_EFFECT_LIGHT); }
-  getEffectLightName() { return this.request(CMD.GET_EFFECT_LIGHT_NAME); }
+  /**
+   * Product info. `0x62`.
+   *
+   * The request is not empty: `FUN_1400a3d00` sends LEN=7 with the host clock:
+   *
+   *   [0]=0  [1]=year  [2]=month  [3]=day  [4]=hour  [5]=minute  [6]=second
+   *
+   * The year byte is the app's literal `(year & 0xff) + 0x30`, truncated to a
+   * byte. For 2000..2047 that is years-since-2000 (2026 -> 26); the remaining
+   * fields are plain binary values, not ASCII.
+   *
+   * @param {Date} [date] clock to report, default now
+   */
+  getProductInfo(date = new Date()) {
+    const year = date.getFullYear();
+    return this.request(CMD.GET_PRODUCT_INFO, Uint8Array.of(
+      0,
+      ((year & 0xff) + 0x30) & 0xff,
+      date.getMonth() + 1,
+      date.getDate(),
+      date.getHours(),
+      date.getMinutes(),
+      date.getSeconds(),
+    ), { timeoutMs: 3000 });
+  }
+
+  /**
+   * Keymap read. `0x2A`, payload is the layer byte from sender+0xC0
+   * (`FUN_1400a3320`). Layer 0 is the base layer.
+   */
+  getKeyboardConfig(layer = 0) {
+    return this.request(CMD.GET_KEYBOARD_CONFIG, Uint8Array.of(layer & 0xff));
+  }
+
+  /**
+   * Effect config read. `0x17`, payload is the effect index from sender+0xB0
+   * (`FUN_1400a2410`).
+   */
+  getEffectLight(index = 0) {
+    return this.request(CMD.GET_EFFECT_LIGHT, Uint8Array.of(index & 0xff));
+  }
+
+  /**
+   * Effect-name page. `0x18`, payload is the one-byte name-set selector from
+   * `FUN_1400a2900`: 0 for the default/English set, 1 for the fallback set and
+   * 7 for the third set. The app derives it from the UI language.
+   */
+  getEffectLightName(nameSet = 0) {
+    if (![0, 1, 7].includes(nameSet)) {
+      throw new RangeError(`effect name set must be 0, 1 or 7, got ${nameSet}`);
+    }
+    return this.request(CMD.GET_EFFECT_LIGHT_NAME, Uint8Array.of(nameSet));
+  }
+
   getCustomLight() { return this.request(CMD.GET_CUSTOM_LIGHT); }
 
   /**
@@ -312,15 +362,21 @@ export class ApexHid {
       }
     };
     const parts = await Promise.all([
-      step('productInfo', () => this.request(CMD.GET_PRODUCT_INFO, new Uint8Array(0), { timeoutMs: 3000 })),
+      step('productInfo', () => this.getProductInfo()),
       step('configInfo', () => this.readConfigTables()),
       step('wholeParam', () => this.getWholeParam()),
       step('customLight', () => this.readAll(CMD.GET_CUSTOM_LIGHT)),
-      step('effectLight', () => this.request(CMD.GET_EFFECT_LIGHT, new Uint8Array(0), { param2: PRODUCT_KEYS })),
-      step('effectNames', () => this.readEffectNames()),
-      step('keyboardConfig', () => this.readKeyConfig()),
+      // SyncConfigUtil's 0x17 initiator is called with 0xFF
+      // (FUN_1400b5b80 -> FUN_1400af540); the device returns the current
+      // effect's config rather than a table indexed by 0xFF.
+      step('effectLight', () => this.getEffectLight(0xff)),
+      step('effectNames', () => this.readEffectNamePages()),
+      // FUN_1400b5650/FUN_1400b5850 read layer 0 and then layer 1 before the
+      // high-key read, so a faithful snapshot carries both keymap layers.
+      step('keyboardConfig', () => this.readKeyConfig(0)),
+      step('keyboardConfig1', () => this.readKeyConfig(1)),
       step('highKey', () => this.readHighKeys()),
-      step('macro', () => this.readMacros()),
+      step('macro', () => this.readAllMacros()),
       step('triggerConfig', () => this.readTriggerConfig()),
     ]);
     const out = {};
@@ -356,29 +412,41 @@ export class ApexHid {
   /**
    * Read every page of a paged command.
    *
-   * The device only sends page `n` when asked, so this drives `param1` from 0
-   * upward and stops once `total` pages have been collected. Returns the pages in
-   * order plus the concatenated payload.
+   * The Windows app's initiators set sender+0x59/+0x5A to 0x0101, so the first
+   * request carries page 1 and total 1. The reply reports the real total; every
+   * later request carries the next page and that total. `FUN_140098b90` and the
+   * other response handlers re-enter their builders in exactly that order.
+   *
+   * `payload` is for reads that identify a sub-object: effect index (`0x17`),
+   * keymap layer (`0x2A`), macro slot (`0x42`) and effect-name set (`0x18`).
+   *
+   * Returns both the raw payloads (`pages`) and the whole response frames, so a
+   * caller can inspect `frame`/`total` without re-reading.
    *
    * @param {number} cmd
-   * @param {{param2?: number, maxPages?: number, timeoutMs?: number}} [opts]
-   * @returns {Promise<{pages: Uint8Array[], total: number, joined: Uint8Array}>}
+   * @param {{payload?: Uint8Array, maxPages?: number, timeoutMs?: number}} [opts]
+   * @returns {Promise<{pages: Uint8Array[], frames: object[], total: number,
+   *                    joined: Uint8Array}>}
    */
   async readAll(cmd, opts = {}) {
-    const { param2 = PRODUCT_KEYS, maxPages = 32, timeoutMs = 1000 } = opts;
+    const {
+      payload = new Uint8Array(0), maxPages = 32, timeoutMs = 1000,
+    } = opts;
     const pages = [];
-    let total = 0;
-    for (let page = 0; page < maxPages; page += 1) {
+    const frames = [];
+    let total = 1;
+    for (let page = 1; page <= maxPages; page += 1) {
       // eslint-disable-next-line no-await-in-loop
-      const r = await this.request(cmd, new Uint8Array(0), {
-        param1: page, param2, timeoutMs,
+      const r = await this.request(cmd, payload, {
+        param1: page, param2: total, timeoutMs,
       });
       pages.push(r.payload);
+      frames.push(r);
       if (r.total > 0) {
         total = r.total;
-        if (page + 1 >= r.total) break;
-      } else if (page === 0) {
-        // Single-frame response: nothing to page.
+        if (page >= r.total) break;
+      } else {
+        // Single-frame response: total is zero, so there is no page two.
         break;
       }
     }
@@ -386,24 +454,34 @@ export class ApexHid {
     const joined = new Uint8Array(size);
     let at = 0;
     for (const p of pages) { joined.set(p, at); at += p.length; }
-    return { pages, total, joined };
+    return { pages, frames, total, joined };
+  }
+
+  /**
+   * Raw `0x18` pages, for a faithful snapshot. The first request is page 1, so
+   * page 0's 16-byte thirteenth-name blob is not requested.
+   */
+  readEffectNamePages(nameSet = 0) {
+    if (![0, 1, 7].includes(nameSet)) {
+      throw new RangeError(`effect name set must be 0, 1 or 7, got ${nameSet}`);
+    }
+    return this.readAll(CMD.GET_EFFECT_LIGHT_NAME, {
+      payload: Uint8Array.of(nameSet),
+    });
   }
 
   /**
    * Read all effect names, keyed by their global index.
    *
+   * `0x18` takes a one-byte name-set selector (0 default/English, 1 fallback,
+   * 7 third set); it is not an effect index.
+   *
+   * @param {0|1|7} [nameSet]
    * @returns {Promise<{index: number, name: string|null}[]>}
    */
-  async readEffectNames() {
-    const { pages } = await this.readAll(CMD.GET_EFFECT_LIGHT_NAME, { param2: 0 });
-    const slots = new Map();
-    for (const payload of pages) {
-      const { index, names } = parseEffectNamePage(payload);
-      names.forEach((name, i) => slots.set(index + i, name || null));
-    }
-    return [...slots.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([index, name]) => ({ index, name }));
+  async readEffectNames(nameSet = 0) {
+    const { pages } = await this.readEffectNamePages(nameSet);
+    return parseEffectNameSlots(pages);
   }
 
   /** Per-key Hall-effect ADC calibration values (16-bit little-endian). */
@@ -412,8 +490,15 @@ export class ApexHid {
   /** Per-key actuation / quick-trigger configuration (7-byte records). */
   readTriggerConfig() { return this.readAll(CMD.GET_TRIGGER_CONFIG); }
 
-  /** Per-key remap table (3-byte records). */
-  readKeyConfig() { return this.readAll(CMD.GET_KEYBOARD_CONFIG, { param2: 0 }); }
+  /** Per-key remap table (3-byte records) for one layer (`0x2A`). */
+  readKeyConfig(layer = 0) {
+    if (!isValidKeymapLayer(layer)) {
+      throw new RangeError(`keymap layer must be 0 or 1, got ${layer}`);
+    }
+    return this.readAll(CMD.GET_KEYBOARD_CONFIG, {
+      payload: Uint8Array.of(layer),
+    });
+  }
 
   /** Profile names, e.g. "KeyLayer1". */
   readConfigTables() { return this.readAll(CMD.GET_CONFIG_INFO); }
@@ -467,60 +552,54 @@ export class ApexHid {
   /**
    * Add a high-key binding. `0x22`.
    *
-   * This is a VARIABLE-LENGTH record, not a fixed pair. The layout is:
+   * `FUN_14009e380` builds a variable-length record:
    *
-   *   [0] = sender+0x24A   the key / layer
-   *   [1] = sender+0x24B   TYPE, selects the record shape
+   *   [0] = sender+0x24A   the key item
+   *   [1] = sender+0x24B   type, selects the record shape
    *   [2..] = type-specific data
    *
-   *   type 0 -> len 6  (4 data bytes)
-   *   type 1 -> len 11 (10 data bytes)
-   *   type 2 -> len 19 (17 data bytes)
-   *   type 4 -> len 4  (2 data bytes)
-   *   type 5 -> len 5  (3 data bytes)
+   *   type 0 TGL  -> len 6  (4 data bytes)
+   *   type 1 MT   -> len 11 (9 data bytes on the wire; a 10th is past LEN)
+   *   type 2 DKS  -> len 19 (17 data bytes)
+   *   type 3 RS   -> len 4  (2 data bytes)
+   *   type 4 OKS  -> len 4  (2 data bytes)
+   *   type 5 SOCD -> len 5  (3 data bytes)
    *
-   * So the caller supplies the key, the type, and that type's data bytes, and
-   * this builds the frame. Which type number means which of the six modifiers
-   * (DKS/MT/TGL/RS/SOCD/OKS) is not yet established — see PROTOCOL.md 8.3.1.
+   * Pass `{modifier, key, data}` with a name from `KEY_MODIFIERS`; the builder
+   * supplies the type code and enforces the verified length. The frame header
+   * is fixed single-page (`[2]=1 [3]=1`), matching the builder.
    *
-   * @param {{key: number, type: number, data?: number[]|Uint8Array}} binding
+   * @param {{modifier: string, key: number, data?: number[]|Uint8Array}} binding
    */
   addHighKey(binding) {
     const { record } = buildHighKeyBinding(binding);
-    return this.request(CMD.ADD_HIGH_KEY, record, { allowWrite: true, timeoutMs: 2000 });
+    return this.request(CMD.ADD_HIGH_KEY, record, {
+      param1: 1, param2: 1, allowWrite: true, timeoutMs: 2000,
+    });
   }
 
   /**
    * Add a SOCD (type 5) binding. Fully decoded: key, type, key1, key2, mode.
-   * @param {{key: number, key2?: number, mode?: number}} opts
+   * @param {{key: number, key1?: number, key2?: number, mode?: number}} opts
    */
   addSocd(opts) {
     const record = buildSocdRecord(opts);
-    return this.request(CMD.ADD_HIGH_KEY, record, { allowWrite: true, timeoutMs: 2000 });
+    return this.request(CMD.ADD_HIGH_KEY, record, {
+      param1: 1, param2: 1, allowWrite: true, timeoutMs: 2000,
+    });
   }
 
   /**
-   * Decode every record in a `0x2B` readback into modifier + key + data.
-   * Records are self-delimiting by their type's fixed length.
+   * Decode a `0x2B` readback into modifier + key + data.
+   *
+   * The response is a sequence of fixed 19-byte slots - `FUN_140098b90` divides
+   * the payload length by 19 and walks stride 0x13 - not variable `0x22`
+   * records. Shared with the snapshot decoder, which needs the same layout.
+   *
    * @param {Uint8Array[]} pages raw payloads from `readHighKeys()`
    */
   static decodeHighKeyPages(pages) {
-    const flat = [];
-    for (const p of pages) for (const b of p) flat.push(b);
-    const out = [];
-    let i = 0;
-    while (i + 1 < flat.length) {
-      const type = flat[i + 1];
-      const len = HIGH_KEY_LENGTH[type];
-      if (!len) { out.push({ raw: flat.slice(i, i + 2), error: `unknown type ${type}` }); i += 2; continue; }
-      if (i + len > flat.length) {
-        out.push({ raw: flat.slice(i), error: `truncated type ${type}: need ${len}, have ${flat.length - i}` });
-        break;
-      }
-      out.push(parseHighKeyRecord(Uint8Array.from(flat.slice(i, i + len))));
-      i += len;
-    }
-    return out;
+    return decodeHighKeyRecords(pages);
   }
 
   /**
@@ -621,17 +700,61 @@ export class ApexHid {
     return replies;
   }
 
-  /** Remove a high-key binding. `0x25`, payload is the binding index. */
-  delHighKey(index) {
-    return this.request(CMD.DEL_HIGH_KEY, Uint8Array.of(index & 0xff), {
-      allowWrite: true, timeoutMs: 2000,
+  /**
+   * Remove a high-key binding. `0x25`.
+   *
+   * `FUN_14009f200` sends exactly one payload byte, sender+0x24A: the same key
+   * item as record byte 0 of a `0x22` write and slot byte 0 of a `0x2B`
+   * readback. It is **not** an array index into the table. Header [2]/[3] are
+   * fixed at 1/1, as in the builder.
+   */
+  delHighKey(key) {
+    return this.request(CMD.DEL_HIGH_KEY, Uint8Array.of(key & 0xff), {
+      param1: 1, param2: 1, allowWrite: true, timeoutMs: 2000,
     });
   }
 
   /* ---- macros ------------------------------------------------------------ */
 
-  /** Macro slots. Read via `0x42 getMacroConfig`, payload is the macro index. */
-  readMacros() { return this.readAll(CMD.GET_MACRO_CONFIG); }
+  /**
+   * Read one macro slot. `0x42`, payload is the slot byte from sender+0x108
+   * (`FUN_1400af6a0`). The Windows app sends one request per slot; it does not
+   * ask for all ten in one frame.
+   *
+   * @param {number} slot 0..9 (M1..M10)
+   */
+  readMacros(slot) {
+    if (!Number.isInteger(slot) || slot < MACRO_SLOT_MIN || slot > MACRO_SLOT_MAX) {
+      throw new RangeError(
+        `macro slot must be ${MACRO_SLOT_MIN}..${MACRO_SLOT_MAX} (M1..M10), got ${slot}`);
+    }
+    return this.readAll(CMD.GET_MACRO_CONFIG, { payload: Uint8Array.of(slot) });
+  }
+
+  /**
+   * Read all ten macro slots, one `0x42` request each. Used by the device
+   * snapshot; the editor reads the one selected slot instead.
+   *
+   * @returns {Promise<{slots: object[], frames: object[], pages: Uint8Array[],
+   *                    joined: Uint8Array}>}
+   */
+  async readAllMacros() {
+    const slots = [];
+    const frames = [];
+    const pages = [];
+    for (let slot = MACRO_SLOT_MIN; slot <= MACRO_SLOT_MAX; slot += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await this.readMacros(slot);
+      slots.push({ slot, ...r });
+      frames.push(...r.frames);
+      pages.push(...r.pages);
+    }
+    const size = pages.reduce((n, p) => n + p.length, 0);
+    const joined = new Uint8Array(size);
+    let at = 0;
+    for (const p of pages) { joined.set(p, at); at += p.length; }
+    return { slots, frames, pages, joined };
+  }
 
   
 
@@ -639,15 +762,29 @@ export class ApexHid {
    * Write macro records. `0x40`.
    *
    * The record is 6 bytes with bytes 0 and 1 transposed on the wire; this applies
-   * that. The six bytes' *meanings* are not recovered, so records go in and come
-   * back verbatim rather than through an invented keystroke editor — read with
-   * `readMacros()`, edit the bytes, write them back.
+   * that. The six bytes' *meanings* are recovered (see `decodeMacroRecord`), but
+   * records are still carried verbatim so a read -> write round trip is
+   * byte-identical.
+   *
+   * A macro is **paged**: `FUN_1400b0e20` puts 9 records per frame, sets page 1
+   * and total = ceil(count / 9), and the `0xC0` handler advances one page per
+   * ack. This method sends the pages in order and waits for each ack. An empty
+   * list is refused: the Windows app takes a signal-only branch and sends no
+   * `0x40` frame; use `delMacro` to clear a slot.
    *
    * @param {{slot: number, records: (number[]|Uint8Array)[]}} opts
+   * @returns {Promise<object[]>} one response per page
    */
-  setMacro({ slot, records = [] }) {
-    const payload = buildMacroPayload({ slot, records });
-    return this.request(CMD.SET_MACRO_CONFIG, payload, { allowWrite: true, timeoutMs: 2000 });
+  async setMacro({ slot, records = [] }) {
+    const pages = pageMacroPayloads({ slot, records });
+    const replies = [];
+    for (const p of pages) {
+      // eslint-disable-next-line no-await-in-loop
+      replies.push(await this.request(CMD.SET_MACRO_CONFIG, p.payload, {
+        param1: p.page, param2: p.lastPage, allowWrite: true, timeoutMs: 2000,
+      }));
+    }
+    return replies;
   }
 
   /** Delete a macro slot. `0x41`. */
@@ -707,11 +844,13 @@ export class ApexHid {
   }
 
   /**
-   * Read back the current effect config and return it in field form.
+   * Read back one effect config and return it in field form.
    * Safe to call before any `setEffectLight` to seed `readback`.
+   *
+   * @param {number} [effect] effect index to query (the `0x17` payload byte)
    */
-  async readEffectConfig() {
-    const r = await this.getEffectLight();
+  async readEffectConfig(effect = 0) {
+    const r = await this.getEffectLight(effect);
     const p = r.payload;
     if (p.length >= 8) return parseEffectConfig(p);
     // The device may return a shorter form depending on how many effects it
@@ -753,10 +892,10 @@ export class ApexHid {
    */
   async setEffectLightVerified({ effect, brightness = 100, speed = 100,
                                   red = null, green = null, blue = null } = {}) {
-    const before = await this.readEffectConfig();
+    const before = await this.readEffectConfig(effect);
     const readback = before ? Uint8Array.of(0, 0, 0, ...before.opaque) : null;
     const write = await this.setEffectLight({ effect, brightness, speed, red, green, blue, readback });
-    const after = await this.readEffectConfig();
+    const after = await this.readEffectConfig(effect);
     const wantColour = red !== null || green !== null || blue !== null;
     const colourOk = !wantColour || !!after && (
       (red === null || after.colour.r === red) &&
@@ -778,13 +917,13 @@ export class ApexHid {
    * @param {{effect: number, red: number, green: number, blue: number}} opts
    */
   async setEffectColour({ effect, red, green, blue }) {
-    const before = await this.readEffectConfig();
+    const before = await this.readEffectConfig(effect);
     const readback = before ? Uint8Array.of(0, 0, 0, ...before.opaque) : null;
     const payload = buildColourConfig({ effect, red, green, blue, readback });
     const write = await this.request(CMD.SET_EFFECT_LIGHT, payload, {
       allowWrite: true, timeoutMs: 2000,
     });
-    const after = await this.readEffectConfig();
+    const after = await this.readEffectConfig(effect);
     const match = !!after && after.colour.r === red && after.colour.g === green && after.colour.b === blue;
     return { write, before, after, match };
   }

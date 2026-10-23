@@ -274,8 +274,11 @@ $('#btnReadEffects').addEventListener('click', async () => {
 
 $('#btnReadEffectCount').addEventListener('click', async () => {
   try {
-    const r = await hid.getEffectLight();
-    showOutput('#effectInfo', `0x17 get_effect_light -> ${r.payload.length} byte(s): ${hex(r.payload)}\n(0x0d = 13)`);
+    // SyncConfigUtil asks for the current effect with the 0xFF sentinel
+    // (FUN_1400b5b80 -> FUN_1400af540); FUN_1400a2410 puts the byte at frame[6].
+    const r = await hid.getEffectLight(0xff);
+    showOutput('#effectInfo',
+      `0x17 get_effect_light(0xFF = current) -> ${r.payload.length} byte(s): ${hex(r.payload)}`);
     $('#effectInfo').classList.remove('hidden');
   } catch (err) { fail(err); }
 });
@@ -372,7 +375,8 @@ let lastEffectPayload = null;
 
 async function refreshEffect() {
   try {
-    const cfg = await hid.readEffectConfig();
+    const effect = Number(lMode.value) || 0;
+    const cfg = await hid.readEffectConfig(effect);
     if (cfg) {
       lastEffectPayload = buildEffectConfig({
         effect: cfg.effect, brightness: cfg.brightness, speed: cfg.speed,
@@ -403,7 +407,7 @@ $('#btnLightReadAll').addEventListener('click', async () => {
   const status = $('#lightStatus');
   try {
     setStatus('reading lighting...', '');
-    const cfg = await hid.readEffectConfig();
+    const cfg = await hid.readEffectConfig(Number(lMode.value) || 0);
     let names = null;
     let custom = null;
     try { names = await hid.readEffectNames(); } catch (err) { /* names are optional */ }
@@ -477,8 +481,10 @@ $('#btnSetLight').addEventListener('click', async () => {
 
 $('#btnGetLightName').addEventListener('click', async () => {
   try {
-    const r = await hid.getEffectLightName();
-    showOutput('#lightOut', `0x18 len ${r.payload.length}\n${hex(r.payload)}\n${asciiPreview(r.payload)}`);
+    // 0x18 takes a one-byte name-set selector; 0 is the English/default set.
+    const r = await hid.getEffectLightName(0);
+    showOutput('#lightOut',
+      `0x18 name set 0 — len ${r.payload.length}\n${hex(r.payload)}\n${asciiPreview(r.payload)}`);
   } catch (err) { fail(err); showOutput('#lightOut', String(err.message ?? err)); }
 });
 
@@ -513,20 +519,23 @@ $('#btnSetColour').addEventListener('click', async () => {
 $('#btnSelectEffect').addEventListener('click', async () => {
   try {
     const effect = Number(lMode.value);
-    // 0x19 selects which effect is active. Nothing in the app's protocol states
-    // which 0x17 byte marks "currently selected", so the honest check is that the
-    // device's reported config changed as a result of the select.
-    const before = await hid.readEffectConfig();
+    // 0x19 selects which effect is active; it carries no other state. The sync
+    // path reads the active effect with the 0xFF sentinel (FUN_1400b5b80 ->
+    // FUN_1400af540), so the honest check is which effect the board reports as
+    // current before and after the select, not a config diff. PROTOCOL.md 8.17.
+    const before = await hid.readEffectConfig(0xff);
     const w = await hid.selectEffectLight(effect);
-    const after = await hid.readEffectConfig();
-    const changed = JSON.stringify(before?.opaque ?? null) !== JSON.stringify(after?.opaque ?? null)
-      || (before?.effect ?? null) !== (after?.effect ?? null);
+    const after = await hid.readEffectConfig(0xff);
+    const describe = (c) => (c ? `effect=${c.effect} bright=${c.brightness} speed=${c.speed}` : 'no config returned');
+    const became = after?.effect === effect;
     showOutput('#lightOut',
       `sent 0x19 effect=${effect}\nresponse len ${w.payload.length}\n${hex(w.payload)}\n\n` +
-      `0x17 before: ${before ? `effect=${before.effect} bright=${before.brightness} speed=${before.speed}` : 'fail'}\n` +
-      `0x17 after:  ${after ? `effect=${after.effect} bright=${after.brightness} speed=${after.speed}` : 'fail'}\n` +
-      `  VERIFIED: ${changed ? 'yes - device state changed' : 'NO - device state unchanged; the select may not have applied'}`);
-    if (!changed) fail(new Error('0x19 select did not change device state'));
+      `0x17 (0xFF current-effect read) before: ${describe(before)}\n` +
+      `0x17 (0xFF current-effect read) after:  ${describe(after)}\n` +
+      `  VERIFIED: ${became
+        ? 'yes - the board reports this effect as current'
+        : 'NO - the board does not report this effect as current'}`);
+    if (!became) fail(new Error('0x19 select did not make the reported current effect this one'));
   } catch (err) { fail(err); showOutput('#lightOut', String(err.message ?? err)); }
 });
 
@@ -593,13 +602,15 @@ function renderKeymap(records) {
 
 $('#btnReadKeymap').addEventListener('click', async () => {
   try {
-    const r = await hid.readKeyConfig();
+    // 0x2A's payload is the keymap layer (sender+0xC0), not an empty request.
+    const layer = Number($('#kLayer').value) & 0xff;
+    const r = await hid.readKeyConfig(layer);
     const records = parseKeymap(r.frames.map((f) => f.payload));
     lastKeymapRecords = records;
     const res = renderKeymap(records);
     $('#btnKeymapRef').disabled = false;
     showOutput('#keymapOut',
-      `0x2A frames ${r.frames.length}, ${res.total} key records\n\n` +
+      `0x2A layer ${layer}, frames ${r.frames.length}, ${res.total} key records\n\n` +
       (res.hasReference
         ? `${res.differing} key(s) differ from the reference taken ` +
           `${keymapReference.taken}.\n\n`
@@ -665,7 +676,7 @@ function snapshotSummary(name, value) {
   if (name === 'customLight' && value?.pages) {
     extra.push(`${parseCustomLight(value.pages).records.length} keys`);
   }
-  if (name === 'keyboardConfig' && value?.pages) {
+  if ((name === 'keyboardConfig' || name === 'keyboardConfig1') && value?.pages) {
     extra.push(`${parseKeymap(value.pages).length} keys`);
   }
   if (name === 'macro' && value) extra.push(`${value.frames ? value.frames.length : 0} frames`);
@@ -680,7 +691,7 @@ $('#btnSnapshot').addEventListener('click', async () => {
   snapshotJson = null;
   const box = $('#snapSummary');
   box.innerHTML = '';
-  showOutput('#snapOut', 'reading ten tables from the device...');
+  showOutput('#snapOut', 'reading the config tables from the device...');
   try {
     const snap = await hid.snapshot();
     for (const p of snap.parts) {
@@ -1003,8 +1014,11 @@ $('#btnClearSteps').addEventListener('click', () => { macroSteps.length = 0; ren
 
 $('#btnReadMacros').addEventListener('click', async () => {
   try {
-    const r = await hid.readMacros();
-    let out = `0x42 frames ${r.frames.length}\n\n`;
+    // 0x42 is per-slot: the payload is sender+0x108. Read the slot selected in
+    // the editor, so the steps loaded below are the steps a write will target.
+    const slot = Number($('#mSlot').value) || 0;
+    const r = await hid.readMacros(slot);
+    let out = `0x42 slot ${slot} (M${slot + 1}), ${r.frames.length} frame(s)\n\n`;
     const all = [];
     for (const f of r.frames) {
       if (f.payload.length < 2) { out += `len ${f.payload.length}, too short\n${hex(f.payload)}\n`; continue; }
@@ -1020,7 +1034,7 @@ $('#btnReadMacros').addEventListener('click', async () => {
       }
       for (const bad of parsed.records.filter((x) => x.error)) out += `  ${bad.error}\n`;
     }
-    if (all.length) loadMacroEditor(all, `${all.length} step(s) across ${r.frames.length} slot(s)`);
+    if (all.length) loadMacroEditor(all, `M${slot + 1} (${all.length} step(s))`);
     showOutput('#macroOut', out);
   } catch (err) { fail(err); showOutput('#macroOut', String(err.message ?? err)); }
 });
@@ -1033,28 +1047,22 @@ $('#btnSetMacro').addEventListener('click', async () => {
       `  ${i + 1}. ${keyName(r[2] | (r[3] << 8))} ${r[1] === MACRO_STATE.DOWN ? 'down' : 'up'} ${r[4] | (r[5] << 8)} ms`
     ).join('\n');
     if (!confirm(`Write ${records.length} step(s) to M${slot + 1}?\n\n${summary}`)) return;
-    const resp = await hid.setMacro({ slot, records });
-    const after = await hid.readMacros();
-    const back = after.frames
+    const replies = await hid.setMacro({ slot, records });
+    const after = await hid.readMacros(slot);
+    // The write is paged, so flatten every page of the slot before comparing.
+    const slotRecs = after.frames
       .map((f) => (f.payload.length >= 2 ? parseMacroRecords(f.payload) : null))
       .filter(Boolean)
       .filter((p) => p.slot === slot)
-      .flatMap((p) => p.records.filter((x) => !x.error))
-      .find((x) => x.bytes.every((b, i) => b === records.flat()[i]) && x.bytes.length === records.flat().length)
-      ?? (() => {
-        // The device may reorder or coalesce, so compare the whole slot rather
-        // than only looking for one record.
-        const slotRecs = after.frames
-          .map((f) => (f.payload.length >= 2 ? parseMacroRecords(f.payload) : null))
-          .filter(Boolean).filter((p) => p.slot === slot)
-          .flatMap((p) => p.records.filter((x) => !x.error));
-        return slotRecs.length === records.length &&
-          slotRecs.every((r, i) => r.bytes.every((b, j) => b === records[i][j])) ? slotRecs[0] : null;
-      })();
+      .flatMap((p) => p.records.filter((x) => !x.error));
+    const back = slotRecs.length === records.length
+      && slotRecs.every((r, i) => r.bytes.every((b, j) => b === records[i][j]));
     const flat = records.flat();
     showOutput('#macroOut',
-      `sent 0x40 slot=${slot}, ${records.length} record(s), ${flat.length} payload bytes\n` +
-      `${summary}\n\nresponse len ${resp.payload.length}\n${hex(resp.payload)}\n` +
+      `sent 0x40 slot=${slot}, ${records.length} record(s) in ${replies.length} page(s), ` +
+      `${flat.length} payload bytes\n` +
+      `${summary}\n\n` +
+      replies.map((r, i) => `page ${i + 1} response len ${r.payload.length}\n${hex(r.payload)}`).join('\n') + '\n' +
       `  VERIFIED: ${back ? 'yes - M' + (slot + 1) + ' reads back byte-identical' : 'NO - slot did not read back as written'}`);
     if (!back) fail(new Error('macro write did not verify against readback'));
   } catch (err) { fail(err); showOutput('#macroOut', String(err.message ?? err)); }
@@ -1121,12 +1129,13 @@ $('#btnDecodeHighKeys').addEventListener('click', async () => {
     const r = await hid.readHighKeys();
     const recs = ApexHid.decodeHighKeyPages(r.frames.map((f) => f.payload));
     showOutput('#highKeyOut',
-      `0x2B frames ${r.frames.length}, decoded ${recs.length} record(s)\n\n` +
+      `0x2B frames ${r.frames.length}, decoded ${recs.length} 19-byte slot(s)\n\n` +
       recs.map((d, i) => d.error
         ? `[${i}] ERROR ${d.error}\n${hex(Uint8Array.from(d.raw))}`
-        : `[${i}] ${d.modifier.toUpperCase()} (${d.label}) key=0x${d.key.toString(16).padStart(2, '0')} ` +
-          `type=${d.type} len=${d.length}${d.lengthOk ? '' : ' EXPECTED ' + d.expectedLength} ` +
-          `data=[${d.data.map((b) => b.toString(16).padStart(2, '0')).join(' ')}]`
+        : `[${d.slot}] ${d.modifier.toUpperCase()} (${d.label}) key=0x${d.key.toString(16).padStart(2, '0')} ` +
+          `type=${d.type} data=${d.dataLength ?? '?'}B ` +
+          `[${d.data.map((b) => b.toString(16).padStart(2, '0')).join(' ')}]` +
+          (d.paddingZero === false ? '  (nonzero padding)' : '')
       ).join('\n'));
   } catch (err) { fail(err); showOutput('#highKeyOut', String(err.message ?? err)); }
 });
@@ -1137,9 +1146,10 @@ $('#btnAddHighKey').addEventListener('click', async () => {
     const mod = selectedModifier();
     let data;
     if (mod.name === 'socd') {
-      // Fully decoded: key, type, key1, key2, resolution mode.
+      // Fully decoded: key, type, key1, key2, resolution mode. QSocdAddDialog
+      // initialises both partner keys to 0xFF and only writes the mode.
       const mode = Number($('#hSocdMode').value);
-      data = [0xff, mode];
+      data = [0xff, 0xff, mode];
     } else {
       data = parseHexBytes($('#hData').value, mod.dataLen);
     }
@@ -1150,19 +1160,21 @@ $('#btnAddHighKey').addEventListener('click', async () => {
 });
 
 $('#btnDelHighKey').addEventListener('click', async () => {
-  const idx = Number($('#hIndex').value) & 0xff;
-  if (!confirm(`Delete Fn-layer binding ${idx}?`)) return;
+  // 0x25's payload is the key item (sender+0x24A), not an array index.
+  const key = Number($('#hIndex').value) & 0xff;
+  const keyHex = `0x${key.toString(16).padStart(2, '0')}`;
+  if (!confirm(`Delete the Fn-layer binding for key ${keyHex}?`)) return;
   try {
-    const probe = Uint8Array.of(idx);
     const before = (await hid.readHighKeys()).frames.map((f) => f.payload);
-    const w = await hid.delHighKey(idx);
+    const w = await hid.delHighKey(key);
     const after = (await hid.readHighKeys()).frames.map((f) => f.payload);
     const changed = !ApexHid.pagesEqual(before, after);
+    const stillSeen = ApexHid.containsBytes(after, Uint8Array.of(key));
     showOutput('#highKeyOut',
-      `sent 0x25 index ${idx}\nresponse len ${w.payload.length}\n${hex(w.payload)}\n\n` +
+      `sent 0x25 key ${keyHex} (payload [${key}])\nresponse len ${w.payload.length}\n${hex(w.payload)}\n\n` +
       `before (${before.length} frames):\n${before.map(hex).join('\n')}\n` +
       `after  (${after.length} frames):\n${after.map(hex).join('\n')}\n` +
-      `  index byte ${idx.toString(16)} ${ApexHid.containsBytes(after, probe) ? 'still present' : 'gone'}\n` +
+      `  key byte ${keyHex} ${stillSeen ? 'still appears somewhere (it can also be payload data)' : 'no longer present'}\n` +
       `  VERIFIED: ${changed ? 'yes - device table changed' : 'NO - device table unchanged'}`);
     if (!changed) fail(new Error('0x25 did not change device state'));
   } catch (err) { fail(err); showOutput('#highKeyOut', String(err.message ?? err)); }
