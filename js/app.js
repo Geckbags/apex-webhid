@@ -842,7 +842,9 @@ $('#btnApplyParams').addEventListener('click', async () => {
     }
     const summary = Object.entries(changes)
       .map(([k, v]) => `  ${k}: ${before[k]} -> ${v}`).join('\n');
-    if (!confirm(`Write these global settings?\n\n${summary}\n\nThe other six are read back from the device unchanged.`)) return;
+    if (!confirm(`Write these global settings?\n\n${summary}\n\n` +
+      'Everything you did not edit is carried forward byte-for-byte, ' +
+      'the same read-modify-write the Windows form does.')) return;
     const r = await hid.setWholeParam(changes);
     renderParams(r.after);
     showOutput('#paramsOut',
@@ -1212,7 +1214,10 @@ async function profileWrite(doWrite, label) {
 }
 
 $('#btnAddProfile').addEventListener('click', async () => {
-  if (!confirm(`Create profile ${profileIndex()} on the keyboard?`)) return;
+  if (!confirm(
+    `Add a profile keyed to index ${profileIndex()}?\n\n` +
+    'The Windows app sends the currently selected profile\'s index here ' +
+    '(FUN_140022830); what the board puts in the new slot is its own choice.')) return;
   try {
     await profileWrite(() => hid.addProfile(profileIndex()), `sent 0x58 index ${profileIndex()}`);
   } catch (err) { fail(err); showOutput('#profileOut', String(err.message ?? err)); }
@@ -1220,6 +1225,10 @@ $('#btnAddProfile').addEventListener('click', async () => {
 
 $('#btnSwitchProfile').addEventListener('click', async () => {
   try {
+    // The Windows app skips the send when the selected row already is the
+    // device's current profile (FUN_140022610 compares against its
+    // DAT_140197068+0x80 copy); this app has no cheap way to know that byte,
+    // so the explicit switch always sends.
     await profileWrite(() => hid.switchProfile(profileIndex()), `sent 0x55 index ${profileIndex()}`);
   } catch (err) { fail(err); showOutput('#profileOut', String(err.message ?? err)); }
 });
@@ -1227,6 +1236,18 @@ $('#btnSwitchProfile').addEventListener('click', async () => {
 $('#btnDelProfile').addEventListener('click', async () => {
   if (!confirm(`Delete profile ${profileIndex()}? Its key bindings go with it.`)) return;
   try {
+    // The Windows app refuses to delete the last remaining profile
+    // (FUN_1400228a0 only sends when its profile count is > 1). The same guard
+    // here: count the profile pages that carry a name (page[0] = 0x05,
+    // PROTOCOL.md 7).
+    const pages = (await hid.listProfiles()).pages;
+    const count = pages.filter((p) => p.length > 3 && p[0] === 0x05).length;
+    if (count <= 1) {
+      showOutput('#profileOut',
+        `refused: only ${count} profile page(s) carry a name; the Windows app ` +
+        'never deletes the last remaining profile (FUN_1400228a0)');
+      return;
+    }
     await profileWrite(() => hid.delProfile(profileIndex()), `sent 0x59 index ${profileIndex()}`);
   } catch (err) { fail(err); showOutput('#profileOut', String(err.message ?? err)); }
 });

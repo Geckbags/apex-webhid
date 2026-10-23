@@ -221,5 +221,72 @@ console.log('paged reads start at page 1 and follow the reported total');
   eq(r.total, 2, 'reported total retained');
 }
 
+console.log('profile writes carry the one-byte index at +0x88 (PROTOCOL.md 8.24)');
+
+{
+  const hid = new ApexHid();
+  const sent = fakeDevice(hid);
+  await hid.addProfile(2);
+  await hid.delProfile(1);
+  await hid.switchProfile(0);
+  eq(sent.map((x) => [...x.bytes.slice(0, 7)]), [
+    [0xfa, 0x58, 1, 1, 0, 1, 2],
+    [0xfa, 0x59, 1, 1, 0, 1, 1],
+    [0xfa, 0x55, 1, 1, 0, 1, 0],
+  ], 'add/del/switch send LEN=1, frame[7] = the index byte, page pair 1/1');
+}
+
+console.log('profile list read is a bare paged 0x57');
+
+{
+  const hid = new ApexHid();
+  const sent = fakeDevice(hid, () => ({ frame: 1, total: 1, payload: Uint8Array.of(5, 1, 0) }));
+  const r = await hid.listProfiles();
+  eq(r.total, 1, 'single page reported');
+  eq(sent.map((x) => [...x.bytes.slice(0, 6)], [[0xfa, 0x57, 1, 1, 0, 0]]),
+     [[0xfa, 0x57, 1, 1, 0, 0]], '1/1 first request');
+}
+
+console.log('setWholeParam is a 20-byte 0x50 built from the 0x5E readback (8.14)');
+
+{
+  const hid = new ApexHid();
+  // Wire shape per the builder: [0]=0xFF reserve, [1..10] struct, 9 x 0xFF tail.
+  const readback = Uint8Array.of(
+    0xff, 0, 10, 0, 20, 0, 8, 3, 0, 1, 2,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+  let reads = 0;
+  const sent = fakeDevice(hid, (cmd) => {
+    if (cmd === 0x5e) {
+      reads += 1;
+      const p = Uint8Array.from(readback);
+      if (reads > 1) p[6] = 4; // the device now reports the new polling rate
+      return { frame: 1, total: 1, payload: p };
+    }
+    return {}; // 0x50 ack
+  });
+  const r = await hid.setWholeParam({ pollingRate: 4 });
+  eq(sent.length, 3, 'read, write, read');
+  eq(sent[1].bytes[5], 0x14, 'LEN byte is 0x14');
+  eq(sent[1].bytes[6], 0xff, 'wire byte 0 is the hardcoded reserve 0xFF');
+  eq(r.payload[0], 0xff, 'payload byte 0 is 0xFF');
+  eq(r.payload[6], 4, 'only pollingRate changed in the built payload');
+  eq(r.payload.slice(11).every((b) => b === 0xff), true,
+     'payload tail carries the nine 0xFF padding bytes');
+  eq(r.matched, true, 'byte-identical readback after the write');
+}
+
+console.log('a short 0x5E readback refuses the write instead of guessing (8.14 caveat)');
+
+{
+  const hid = new ApexHid();
+  fakeDevice(hid, (cmd) => (cmd === 0x5e
+    ? { frame: 1, total: 1, payload: Uint8Array.of(0xff, 0, 10, 0, 20, 0) }
+    : {}));
+  let msg = '';
+  try { await hid.setWholeParam({ pollingRate: 4 }); } catch (e) { msg = String(e.message); }
+  ok(/expected 20/.test(msg), `rejects a 6-byte blob with the explicit message: ${msg}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

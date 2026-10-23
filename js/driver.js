@@ -516,21 +516,34 @@ export class ApexHid {
    */
   listProfiles() { return this.readAll(CMD.GET_CONFIG_INFO); }
 
-  /** Create a profile. Payload is the profile table index from the device's list. */
+  /**
+   * Add a profile. Payload is the one-byte config-table index the Windows app
+   * takes from the currently selected profile row (FUN_140022830 -> s[0x88]).
+   */
   addProfile(index) {
     return this.request(CMD.ADD_CONFIG_TABLE, Uint8Array.of(index & 0xff), {
       allowWrite: true, timeoutMs: 2000,
     });
   }
 
-  /** Delete a profile. Irreversible for that profile's bindings. */
+  /**
+   * Delete a profile. Irreversible for that profile's bindings.
+   *
+   * The Windows app refuses to delete the last remaining profile
+   * (FUN_1400228a0 sends only when its profile count is > 1); the UI applies
+   * the same guard before reaching this call.
+   */
   delProfile(index) {
     return this.request(CMD.DEL_CONFIG_TABLE, Uint8Array.of(index & 0xff), {
       allowWrite: true, timeoutMs: 2000,
     });
   }
 
-  /** Make a profile current. This is the "switch profile" action. */
+  /**
+   * Make a profile current. This is the "switch profile" action. The Windows
+   * app skips this send when the selected row already is the device's current
+   * profile (FUN_140022610); this driver always sends what it is asked to send.
+   */
   switchProfile(index) {
     return this.request(CMD.SWITCH_CONFIG_TABLE, Uint8Array.of(index & 0xff), {
       allowWrite: true, timeoutMs: 2000,

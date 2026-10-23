@@ -1708,7 +1708,20 @@ So the `reserve` column is never transmitted from its stored value: the app
 writes a constant `0xFF` in its place, and pads the tail the same way. That is
 consistent with the name.
 
-`0x5E getWholeParam` is a bare request — `LEN = 0`, no payload at all.
+`0x5E getWholeParam` is a bare request — `LEN = 0`, no payload at all. Its slot
+wrapper `FUN_1400af870` sets `sender+0x59/+0x5A = 0x0101` and nothing else.
+
+The set slot behind the form is `FUN_1400b14a0`: it sets the same `0x0101`
+pair, then copies the caller's **11-byte struct** into the sender buffer at
+`+0x90` byte for byte — `buf[0..1]`, a `u16` at `buf[2..3]`, a `u16` at
+`buf[4..5]`, and bytes `buf[6..10]` — and calls the builder. The builder skips
+`buf[0]` (the reserve) and hardcodes `0xFF` in its place. The form's slider
+handler confirms the binding in the other direction: `FUN_14004a5c0` stores the
+slider value as a `short` at `form+0x40`, which lands exactly in that second
+`u16` field, then fires `FUN_14004f450`, which copies the form's `+0x3E` window
+into the send buffer. Import replays through the same slot: the ImportConfigUtil
+chain stages `params_table` at `+0x68` and calls `FUN_1400b14a0` with it
+(§8.22, slot 3).
 
 **What this buys.** Eight named, host-settable settings the WebHID app can now
 expose: touch optimise, dead-key down and up, polling rate, shake level,
@@ -1716,6 +1729,18 @@ calibration, sports mode, current layer. `0x50` rewrites the whole blob, so the
 driver reads `0x5E` first and carries the other seven bytes forward — the same
 read-modify-write discipline the `0x13` effect path uses. Every write is read
 back and reported.
+
+**Readback caveat.** The device's `0x5E` answer never appeared in the live
+captures (§7 pre-dates the whole-param work), so whether its payload is the
+full 20-byte wire shape or a shorter field is not hardware-proven. The binary
+gives one supporting hint and one limit. The hint: the receive side treats it
+as the same space the form edits, and the import writes the identical struct
+straight to `0x50`. The limit: if a firmware ever answers `0x5E` with **fewer
+than 20 bytes**, `parseWholeParams` aborts with `RangeError` and the driver
+sends nothing — a partial blob cannot be padded without guessing, and an
+11-byte readback sent as the 20-byte wire would corrupt the tail. The app
+would not hit this because its form buffer comes from its own synced state;
+this driver only ever builds `0x50` from the device's own readback.
 
 **What is deliberately not claimed.** The *encodings* are still unknown. Which
 byte value means 500 Hz, and what `0` and `1` mean for the three switches, is not
@@ -2813,9 +2838,28 @@ is covered in §8.23.3.
 #### 8.23.1 Read page numbering is 1-based
 
 Every read initiator sets `sender+0x59/+0x5A = 0x0101` before the first builder
-call; `FUN_1400af5d0` is the `0x2B` instance. The builder copies `+0x5A` to
-frame[2] and `+0x59` to frame[3], so the first request is page **1**, total
-**1**.
+call; `FUN_1400af5d0` is the `0x2B` instance. The wrapper sweep over every
+sender slot confirms it is not an accident of one command — the same two byte
+stores appear in all of them:
+
+| Wrapper | Sends | Builder |
+|---|---|---|
+| `FUN_1400af4c0` | `0x57` profiles | `FUN_1400a1ab0` |
+| `FUN_1400af500` | `0x16` custom light | `FUN_1400a1f60` |
+| `FUN_1400af590` | `0x18` effect names | `FUN_1400a2900` |
+| `FUN_1400af6a0` | `0x42` macro (slot 0..9 enforced) | `FUN_1400a3810` |
+| `FUN_1400af810` | `0x62` product info | `FUN_1400a3d00` |
+| `FUN_1400af830` | `0x2C` trigger config | `FUN_1400a4350` |
+| `FUN_1400af870` | `0x5E` whole param | `FUN_1400a4820` |
+| `FUN_1400b14a0` | `0x50` whole param write | `FUN_1400ac480` |
+| `FUN_1400af1b0` | `0x58` add profile | `FUN_14009de90` |
+| `FUN_1400af240` | `0x59` del profile | `FUN_14009ed10` |
+| `FUN_1400b15c0` | `0x55` switch profile | `FUN_1400acb40` |
+
+`FUN_1400af6a0` also proves the macro-slot range: slot 0..9 each pick a distinct
+staging buffer (`+0x110`..`+0x1E8`), and slot 10 emits the communicator's error
+signal instead of sending. The builder copies `+0x5A` to frame[2] and `+0x59` to
+frame[3], so the first request is page **1**, total **1**.
 
 On a reply the handler reads the response frame and total. When `frame < total`
 it sets `+0x5A = frame + 1`, `+0x59 = total`, clears `+0x48`, and calls the
@@ -2877,6 +2921,38 @@ The assembly is literally `QDate::year` in EAX, `ADD AL,0x30`, store AL. It is
 **not** ASCII and not the full year: for 2026 it sends `26` (0x1A), not `'J'`
 and not `0x4A`. Month through second are plain binary. The response (`0xE2`) is
 the 56-byte product-info block in §7.
+
+### 8.24 Profile actions — `0x57` / `0x55` / `0x58` / `0x59`
+
+Profiles are read with `0x57` (`sendGetConfigInfo`, `FUN_1400a1ab0`) and written
+with three one-byte commands. Each write slot sets the paging pair and the
+payload byte directly:
+
+```
+FUN_1400af1b0  0x58 add      s[0x88] = arg; s[0x5A/+0x59] = 0x0101; FUN_14009de90
+FUN_1400af240  0x59 del      same; FUN_14009ed10
+FUN_1400b15c0  0x55 switch   same; FUN_1400acb40
+```
+
+All three builders (`FUN_14009de90`/`FUN_14009ed10`/`FUN_1400acb40`) emit the
+same shape — `LEN = 1`, `frame[7] = s[0x88]` — and the debug line's
+`index={s[0xB0]}` is the mislabelled log field of §4.5, not the wire byte. The
+UI caller of `0x55` is `MainWindow::onSelectionChanged` (`FUN_140022610`): it
+takes the selected row of the profile list (`QStandardItem::row`), stores it in
+`+0xA0`, and **skips the send when that row already equals the device's current
+config index** (`DAT_140197068+0x80`). `0x58` is called from the add button
+(`FUN_140022830`) with the **currently selected profile's index** — the new
+profile is keyed to the selection, and what the board derives from it is its own
+choice. `0x59` is called from the delete button (`FUN_1400228a0`) behind a
+guard: **it only sends when the profile count is > 1** — the app never deletes
+the last remaining profile.
+
+The deletes come from the same selection row, so `index` throughout is the
+zero-based position in the `0x57` list. The WebHID UI mirrors all three
+behaviours: byte-payload writes (`addProfile`/`delProfile`/`switchProfile`),
+a delete guard that counts profile pages from `0x57` before sending, and a note
+that switch always sends because the current-config byte is not cheaply
+knowable there.
 
 ### 11.1 How the frame inventory was built
 

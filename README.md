@@ -86,7 +86,7 @@ Both frontends therefore:
 | Brightness, 0-100 % | working, byte 1 of `0x13` |
 | Speed, 1-100, higher is slower | working, byte 2 of `0x13` |
 | Effect names | working, paged |
-| Profiles: list / add / switch / delete | working, readback verified |
+| Profiles: list / add / switch / delete | working, readback verified; delete refuses the last remaining profile like the Windows app |
 | Fn layer read | working |
 | Key map / per-key remap (0x2A) | working, read-only, decoded to key names |
 | Keymap reference diff | working — a read alone cannot tell you what is remapped |

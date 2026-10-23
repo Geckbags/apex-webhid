@@ -355,6 +355,13 @@
         <strong>⚠️ Profile writes (0x55/0x58/0x59)</strong> are exposed but can permanently change device state; only recovery is factory reset. Always take a snapshot first.
       </div>
       <div class="note">
+        Each of these sends the one-byte profile index at <code>+0x88</code>
+        (PROTOCOL.md &sect;8.24). <em>Add (0x58)</em> is keyed to the profile
+        index you give it &mdash; the Windows app passes the currently selected
+        row. <em>Delete (0x59)</em> refuses to run when only one profile
+        remains, exactly as <code>FUN_1400228a0</code> does.
+      </div>
+      <div class="note">
         The Windows app's <em>Export</em> and <em>Import profile</em> buttons are
         host-side file handling, not protocol operations: export dumps what these
         four commands read back, and import replays the corresponding writes
