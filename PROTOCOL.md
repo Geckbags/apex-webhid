@@ -1162,9 +1162,14 @@ Ordered by what most limits feature parity.
 - **Firmware chunking** for `0x60`/`0x65`/`0x66` and the `firmversion.xml`
   source. Deliberately not implemented.
 - **The thirteenth effect name** (page 0 of `0x18`) — a 16-byte non-ASCII blob.
-- **`0x20`'s prefix byte and record byte 0**, and all of `0x24`'s fields. The
-  two are structurally different commands (§8.15), not two opcodes for one
-  command, which resolves the §3.3 naming finding but leaves both unwritable.
+- **The `0x20`/`0x24`/`0x14` runtime semantics.** Every byte of all three is
+  now named (§8.19, §8.21.1, §8.21.4), and the full producer map is verified
+  (§8.15.1), including the app's own 1-record `0x20` single-key edit. What no
+  static analysis can answer: whether the device upserts the listed records or
+  replaces a whole map from one of these frames, what `0x24` does with `0xFF`
+  in each list position, and whether the decompiled framing matches the device
+  on the wire. That needs a board; until one is attached and the §12.1
+  read-write-read check has passed, all three stay gated.
 - **BLE transport.** The frame layout is solved (§3.2) but never exercised —
   the board under test is wired USB.
 
@@ -1196,6 +1201,7 @@ For contrast, these were open earlier in this work and are now closed:
 | Keymap record is 4 bytes `keyItem,type,hValue,lValue`, confirmed both directions; `modifier`/`layer` names were wrong | §8.18 |
 | Keymap wire order is **permuted** — `[type, lValue, hValue]`, not schema order; `hValue` carries the usage | §8.18.3 |
 | `0x20` sends the first entry's `keyItem` once after LEN, then goes positional | §8.18.4 |
+| `0x20`/`0x24`/`0x14` producer map, paging constants and continuation slots | §8.15.1, §8.21.1, §8.21.4 |
 | `sender+0xC0` is the keymap layer, 0 or 1 only - the byte that gated `0x20` | §8.19 |
 | `ImportConfigUtil` is a bulk whole-profile writer with no UI of its own | §8.17 |
 | Feature-parity audit: 39 app functions, 24/11/4 | §12 |
@@ -1839,6 +1845,32 @@ against hardware and the only recovery from a scrambled layer is a factory reset
 unproven is what the device does with `0xFF` in each list position, so it stays
 gated too.
 
+#### 8.15.1 Producers, verified
+
+Decompiling every caller of the three send wrappers (`FUN_1400b09a0` = `0x14`,
+`FUN_1400b0b80` = `0x20`, `FUN_1400b0cb0` = `0x24`) settles who sends what:
+
+| opcode | producer | shape | layer byte | arms timer |
+|---|---|---|---|---|
+| `0x20` | `KeySetForm` apply `FUN_14002fe80` | 1 record `[type, hValue, lValue]` (§8.19.2) | `form+0x38` | no |
+| `0x20` | `KeySetForm` clear-assignment `FUN_14002f9c0` type 1 | 1 record `[0xFF, 0xFF, 0xFF]` | `form+0x38` | no |
+| `0x20` | import slot 6 `FUN_140090410` | whole layer 0 from `+0x88` | staged `0` at `+0xF8` | yes |
+| `0x20` | import slot 7 `FUN_140090630` | whole layer 1 from `+0x90` | staged `1` at `+0xF8` | yes |
+| `0x24` | `KeySetForm` `FUN_14002f9c0` type 0 | `[keyItem, 0xFF]` | `form+0x38` | no |
+| `0x24` | `KeySetForm` `FUN_14002f9c0` type 2 | `[0xFF, 0xFF]` (clear all) | `form+0x38` | no |
+| `0x24` | `HighKeyForm` `FUN_140040fc0` | `[d0, 0xFF]` / `[d0, d1]` | constant `0` | no |
+| `0x14` | import slot 5 `FUN_140090300` (only site) | whole effect map from `+0x80` | - | yes |
+
+Three behavioural constants fall out of this table. First, **`0x20` is not
+"whole-layer by construction"** - the app's own single-key edit is a 1-record
+frame, so the gate on `0x20` must rest on device semantics, not frame shape
+(§8.19.3). Second, **`0x20`'s all-`0xFF` record is the app's "reset this key's
+assignment" route**, sharing the `0xFF` sentinel the `0x24` producers use.
+Third, **`0x14` never leaves the import chain**: no UI dialog can send it. The
+import slots all gate on response kind 3 and advance the shared progress field
+at `param_1+0x38` by 5% per table step; the UI paths leave the completion timer
+disarmed.
+
 ### 8.16 The app's own names for the frame fields
 
 Each Qt class that receives frames carries a moc string-data blob listing its
@@ -2225,18 +2257,39 @@ match for 1, 2, 10 and 85 keys.
 than clamping it - clamping would send a valid-looking frame that edits the wrong
 layer, which is worse than sending nothing.
 
+The rest of the send chain is now verified end to end. The app's own single-key
+edit goes through this command at its smallest legal size: `KeySetForm`'s apply
+slot (`FUN_14002fe80`, logged as `input_keyboard_select`) stages a one-entry map
+for the edited key - record node `[keyItem, type, hValue, lValue]`, keyItem read
+from the widget model at `model+0x2A` - and sends
+`[layer][keyItem][type][lValue][hValue]` with `LEN = 3*1 + 2 = 5`, layer from
+`form+0x38`, completion timer disarmed (§8.15.1). The import path uses the full
+range: whole layer maps of up to **40 records per frame**
+(`0x5B = floor((0x7A - 2) / 3) = 40`, `0x59 = ceil(count / 40)` - a full page's
+LEN is exactly `0x7A`), advanced by the continuation slot `FUN_14009bea0` on
+every `0xA0` ack: it stops the timer, emits progress through `FUN_14001b8b0`
+(carrying the layer pointer), and while `frame < total` bumps `0x5A`, clears
+the retry counter and rebuilds. An empty map is refused with the error signal
+rather than an empty frame.
+
 #### 8.19.3 What this does and does not unblock
 
-`0x24` stays gated. Its prefix byte is now named, but the single byte it sends
-per key - read from the flat array at `sender+0xe0` - is still unnamed, so
-exposing it would mean writing a byte whose meaning is unknown.
+`0x24` stays gated. The frame is fully decoded (§8.21.4), the wrapper also
+destroys the sender's cached copy of the affected layer when it fires (§8.21.4)
+- sender-side corroboration of destructive semantics - but what the device does
+with `0xFF` in each list position ("no key", "all keys", or a layer flag) is
+still unproven and nothing in the binary can decide it.
 
-`0x20` has every byte named. That satisfies the naming rule, but **it is still not
-exposed**, and the reason has changed: it is no longer "a byte is unnamed" but
-"a whole-layer rewrite has never been exercised against hardware". That is a
-weaker claim, and it is the one that should govern the decision, because the
-failure mode is a scrambled keymap layer and the only recovery is a factory
-reset.
+`0x20` has every byte named, and its smallest real shape - the app's own
+single-key edit - is a one-record `LEN = 5` frame, so "whole-layer rewrite" is
+no longer the only way this command can be sent. What keeps it gated is now
+precise: the device's per-frame semantics (upsert of the listed records, or
+replacement of the whole map) cannot be read from host code, and no variant -
+1-record or whole-layer - has ever been exercised against hardware. The first
+hardware run stays the least-destructive one of §12.1: read a layer, write the
+data back byte-for-byte unchanged, read again, require the second read to equal
+the first (a 1-record write taken verbatim from that same read is the smallest
+strict subset of that check).
 
 ### 8.20 Which class handles each response
 
@@ -2405,6 +2458,24 @@ whole `QMap` into `sender+0xB8`. The old "header bytes unnamed" gate was a
 decompiler artefact; the real gate is that a multi-record effect write has never
 been run against a board.
 
+The rest of the send chain is now verified end to end:
+
+- **`0x14` has exactly one produce site, and it is config import.** The
+  wrapper's only caller is import-chain slot 5, `FUN_140090300` (`§8.22` row 6
+  predicted the wiring; the caller sweep proves no UI dialog can send `0x14`).
+  The slot gates on response kind 3, adds 5% to the shared progress field at
+  `param_1+0x38`, and when the previous table's paging is done
+  (`total <= frame`) it hands the staged effect map at `param_1+0x80` straight
+  to the wrapper with the completion timer armed.
+- **Paging is 15 records per frame.** The wrapper computes
+  `0x5B = 0x7A / 8 = 15`, `0x5A = 1`, `0x59 = ceil(count / 15)`; a full page
+  sends `LEN = 15 * 8 = 120`, the last page `LEN = remaining * 8`. An empty map
+  is refused with the error signal instead of an empty frame.
+- **The continuation slot is the standard shape.** `FUN_14009b3e0` expects the
+  `0x94` ack (`+0x31` compare), stops the completion timer, emits progress
+  through `FUN_14001b430`, and while `frame < total` bumps `0x5A`, clears the
+  retry counter and rebuilds - the same pattern as `0x10`, `0x20` and `0x23`.
+
 #### 8.21.2 `0x10` - prefix is brightness/R/G/B, records are key indices
 
 The builder at `0x1400a60e0` writes four prefix bytes and then copies the byte
@@ -2510,6 +2581,23 @@ The response name for `0xA4` is `set_keyboard_default` (§8.20), which matches t
 proven is what the device does with `0xFF` in each position - "no key", "all
 keys", or "layer flag" all read consistently with the producer code. That, plus
 the absence of a hardware run, is why `0x24` stays gated.
+
+The wrapper now verifies that reading from the sender side. `FUN_1400b0cb0`
+stages the list at `sender+0xD8` (`+0xE0` data, `+0xE8` size), sets
+`+0x31 = 0xA4`, computes `0x5B = 0x7A - 1 = 121` bytes per page
+(`0x59 = ceil(count / 121)` - always `1` for a two-byte list, which is why no
+continuation slot exists), and then, with the layer byte at `+0xC0` choosing
+the container, **empties the sender's cached layer map at `+0xC8` (layer 0) or
+`+0xD0` (layer 1)** with a destructor call and nothing replacing it. The app
+drops its own copy of that layer right after asking the device to clear keys -
+the sender-side mirror of a destructive reset. Before sending, each producer
+also calls `FUN_140065b90(qword_140197068, record)`, updating the app's own
+model, so the UI stays coherent with the state it believes the device is in.
+
+Layer provenance narrowed as well: both `KeySetForm` branches take the layer
+byte from `form+0x38` (the form's own layer selection), while the
+`HighKeyForm` slot passes a constant `0` - its clear always addresses layer 0.
+No producer arms the completion timer.
 
 #### 8.21.5 `0x26` / `0x27` / `0x28` - trigger packing closed
 
@@ -3151,12 +3239,12 @@ remembered.
 | `0x10` | `sendSetCustomLight` | Gated — group-granular by construction (§8.11.2) |
 | `0x11` | `sendSetCustomLightAll` | Exposed — driver helper + UI, read-modify-write + readback verification (§8.13.2) |
 | `0x13` | `sendSetEffectLight` | Exposed — driver helper + UI |
-| `0x14` | `sendSetEffectLightAll` | Gated — payload decoded, no header bytes (§8.21.1); never run against hardware |
+| `0x14` | `sendSetEffectLightAll` | Gated — import-only whole-map replay, decoded (§8.21.1); never run against hardware |
 | `0x16` | `sendGetCustomLight` | Exposed — driver helper + UI |
 | `0x17` | `sendGetEffectLight` | Exposed — driver helper + UI |
 | `0x18` | `sendGetEffectLightName` | Exposed — driver helper + UI |
 | `0x19` | `sendSelectEffectLight` | Exposed — driver helper + UI |
-| `0x20` | `sendSetKeyboardConfig` | Gated — every byte named (§8.19); whole-layer replace never run against hardware |
+| `0x20` | `sendSetKeyboardConfig` | Gated — every byte named (§8.19); no variant (1-record edit or whole-layer import) ever run against hardware |
 | `0x22` | `sendAddHighKey` | Exposed — driver helper + UI (HighKeyForm add) |
 | `0x23` | `sendSetHighKey` | Gated — paged 19-byte bulk write used only by config import (§8.21.8); no UI, never run |
 | `0x24` | `sendSetKeyboardConfig` | Gated — a different command from `0x20` (§8.15), every byte named (§8.21.4); never run |
