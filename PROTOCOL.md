@@ -1121,8 +1121,12 @@ Ordered by what most limits feature parity.
   resolved (§8.11.1) — it is a key index, not a colour. What is *not* resolved
   is `Entry+1`, the group id: the command applies to every entry sharing the
   selected key's group, so there is no single-key granularity to expose until
-  the group ids are named. Blocker and the reason it is hard are in §8.11.2.
-  This is now the largest remaining gap to feature parity.
+  the group ids are named. Blocker and the reason it are hard are in §8.11.2.
+  This is now the largest remaining gap to feature parity. A first negative
+  sweep is recorded in §8.11.3: all 18 callers of the keymap helper were
+  enumerated and the reachable candidates are read-side iterators or touch
+  other containers, so the `Entry` writer sits elsewhere (startup keymap
+  construction is the next place to look).
 - **The macro `type` byte.** The record is fully named in §8.12.1 — `type`,
   `state`, a 16-bit HID usage and a `time` delay — and the app now has a real
   keystroke editor. What is *not* established is what values `type` takes. The
@@ -1359,18 +1363,18 @@ carries one byte per key:
 
 ```
 [0]=0xFA [1]=0x10 [2]=order [3]=frame [4]=0x00
-[5]=LEN = remaining + 4
-[6]=sender+0x242   brightness      (the 0x13 uint64, byte 2)
+[5]=LEN = this page's key count + 4
+[6]=sender+0x242   prefix byte 1 — the custom-light form writes a constant 0 here (§8.11.3)
 [7]=sender+0x245   red             (byte 5)
 [8]=sender+0x246   green           (byte 6)
 [9]=sender+0x247   blue            (byte 7)
-[10..]= per-key bytes, copied from sender+0x230
+[10..]= this page's per-key bytes, copied from the list staged at sender+0x230
 ```
 
-The prefix fields are the *same* struct slots the `0x13` handler fills, so the
-app does not keep a separate copy of "the current colour" — it writes the same
-four values either way. That is independent confirmation of the §6.3 field
-mapping.
+The colour slots are the *same* struct fields the `0x13` handler fills, so the
+app does not keep a separate copy of "the current colour" — but the first
+prefix byte is not "brightness" through any real call site: the only UI path
+stores `0` in `sender+0x242` itself (§8.11.3).
 
 `sender+0x230` is filled by `sub_140034b00`, which walks the keyboard widget's
 selection and resolves each key through the keymap at `*qword_140197068 + 0x20`
@@ -1434,6 +1438,45 @@ substitute either.
 Shipping a colour-per-group write with the group ids unnamed would mean
 colouring a set of keys the user never selected. Per the audit rule in §11, that
 stays documented-only.
+
+#### 8.11.3 `0x10` is a paged write — the rest of the send chain, verified
+
+Decompiling the full send chain (`FUN_140037b30` -> `FUN_1400b0660` ->
+`FUN_1400a60e0`, plus the completion slot `FUN_14009ac30`) settles three things
+§8.11.1 left open:
+
+- **Paging.** The send slot fills `sender+0x5C` with the staged list length,
+  `+0x5B` with the per-page key count `DAT_140194994 - 4 = 0x7A - 4 = 118`, and
+  `+0x5A`/`+0x59` with page/total `1 / ceil(count / 118)`. Each frame therefore
+  carries `118` keys and `LEN = keys + 4`, fixed except on the last page, where
+  `LEN = remaining + 4` and the key slice starts at `(page-1) * 118`. A whole
+  APEX200 paint fits one frame, but the frame layout is genuinely paged, not
+  fixed-length. The completion slot is the standard paged-write continuation:
+  on the `0x90` ack it compares the response opcode against `+0x31`, stops the
+  completion timer, emits progress, and while `frame < total` sets
+  `+0x5A = frame+1`, `+0x59 = total`, clears the retry counter and rebuilds —
+  the same shape as `0x23`/`0x40`.
+- **Empty selection refuses to send.** `FUN_140037b30` runs before the send:
+  when the expanded list is empty it shows the form's "no keys" message box
+  (2000 ms auto-close) instead of staging an empty payload.
+- **The first prefix byte is a constant 0 through the only caller.** The form
+  marshals one packed 64-bit value `[0xFF, form+0x58, 0, 0, 0, R, G, B]`
+  (`form+0x58` = the byte its own brightness control feeds), and the send slot
+  extracts exactly bytes 2, 5, 6, 7 of it into `+0x242`, `+0x245`, `+0x246`,
+  `+0x247`. So `wire[6]` is `0` every time — the app's colour paint transmits a
+  constant mode byte and never forwards the form's brightness — and `[7..9]`
+  are R, G, B. What the device does with a `0` in that position is not
+  observable in this binary (no receive code path here chooses a variant), so
+  any reimplementation must treat "prefix byte equals 0, R/G/B after it" as the
+  only known-good shape.
+
+The group-id hunt also progressed, negatively: the 18 callers of the keymap
+helper `FUN_14002f470` were enumerated, and the four reachable candidates in
+this pass (`0x140084f00`, `0x140035360`, `0x140066670`, `0x140066a70`) all turn
+out to be either readers of a different container (`+0x98`, `+0xA0`) or
+read-side iterators over `+0x20`. The `Entry` population site — the writer of
+`Entry+1` — is still not identified; it sits with the startup keymap
+construction, not with the lighting flow.
 
 ### 8.12 The app's data model is in the binary, verbatim
 
