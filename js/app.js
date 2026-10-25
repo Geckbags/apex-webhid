@@ -1834,7 +1834,7 @@ animateKeyboard();
 
 /* ---------------------------------------------------------------- hero keyboard animation */
 
-const HERO_EFFECTS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
+const HERO_EFFECTS = [5]; // Only Flow L->R for now
 
 function renderHeroKeyboard(effect, brightness, speed, colour, time) {
   const preview = document.getElementById('heroKeyboard');
@@ -1899,12 +1899,9 @@ let heroAnimStartTime = Date.now();
 let heroAnimFrameId = null;
 
 function animateHeroKeyboard() {
-  const effect = HERO_EFFECTS[heroEffectIndex];
-  const time = (Date.now() - heroAnimStartTime) / 10;
-  renderHeroKeyboard(effect, 100, 50, '#ff8a3d', time);
-  if (time > (heroEffectIndex + 1) * 600) {
-    heroEffectIndex = (heroEffectIndex + 1) % HERO_EFFECTS.length;
-  }
+  const effect = 5; // Flow L->R only
+  const time = (Date.now() - heroAnimStartTime) / 50; // Slower animation
+  renderHeroKeyboard(effect, 100, 30, '#ff8a3d', time);
   heroAnimFrameId = requestAnimationFrame(animateHeroKeyboard);
 }
 
