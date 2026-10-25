@@ -85,6 +85,7 @@ export class ApexHid {
   constructor() {
     /** @type {HIDDevice|null} */
     this.device = null;
+    this._connected = false;
     this.listeners = new Map();
     this.pending = new Map();
     this.nextToken = 1;
@@ -156,6 +157,7 @@ export class ApexHid {
       }
     }
     this.device = device;
+    this._connected = true;
 
     device.addEventListener('inputreport', (event) => this.#onInput(event));
     navigator.hid.addEventListener('connect', (event) => {
@@ -176,8 +178,21 @@ export class ApexHid {
     this.emit('attach', device);
   }
 
-  get collections() {
-    return this.device?.collections ?? [];
+  async close() {
+    if (this.device) {
+      try {
+        await this.device.close();
+      } catch (err) {
+        // Ignore close errors
+      }
+      this.device = null;
+      this._connected = false;
+      this.emit('disconnect', null);
+    }
+  }
+
+  get connected() {
+    return this._connected && !!this.device;
   }
 
   #onInput(event) {
@@ -222,7 +237,7 @@ export class ApexHid {
    *          allowForbidden?: boolean}} [opts]
    */
   async request(cmd, payload = new Uint8Array(0), opts = {}) {
-    if (!this.device) throw new Error('Not connected.');
+    if (!this.device || !this._connected) throw new Error('Not connected.');
     const {
       // The Windows app's initiators set sender+0x59/+0x5A to 0x0101 before the
       // first frame, so every fresh request opens at page/order 1,1. Paged

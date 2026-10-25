@@ -44,7 +44,7 @@ document.querySelectorAll('.tabs button').forEach((btn) => {
     // Lighting is stateful, so refresh it when the tab opens. Without this the
     // page shows whatever was on screen at connect time until the user presses
     // a read button - exactly the kind of stale view that invites a wrong write.
-    if (btn.dataset.tab === 'light' && hid.device) $('#btnLightReadAll').click();
+    if (btn.dataset.tab === 'light' && hid.connected) $('#btnLightReadAll').click();
   });
 });
 
@@ -85,7 +85,7 @@ function renderCollections(node, depth = 0, out = []) {
 }
 
 function dumpDeviceInfo() {
-  const d = hid.device;
+  const d = hid.connected ? hid.device : null;
   if (!d) return;
   const lines = [
     `productName  ${d.productName ?? '(none)'}`,
@@ -106,7 +106,7 @@ function dumpDeviceInfo() {
  * straight from sysfs with no root.
  */
 function fetchDescriptor() {
-  if (!hid.device) throw new Error('not connected');
+  if (!hid.connected) throw new Error('not connected');
   const collections = hid.collections.map((c) => ({
     usagePage: `0x${c.usagePage.toString(16)}`,
     usage: `0x${c.usage.toString(16)}`,
@@ -455,7 +455,7 @@ $('#btnLightReadAll').addEventListener('click', async () => {
 });
 
 $('#btnSetLight').addEventListener('click', async () => {
-  if (!hid.device) {
+  if (!hid.connected) {
     showOutput('#lightOut', 'Not connected to keyboard. Press Connect first.');
     return;
   }
@@ -504,7 +504,7 @@ $('#btnCustom').addEventListener('click', async () => {
 });
 
 $('#btnSetColour').addEventListener('click', async () => {
-  if (!hid.device) {
+  if (!hid.connected) {
     showOutput('#lightOut', 'Not connected to keyboard. Press Connect first.');
     return;
   }

@@ -54,6 +54,7 @@ function fakeDevice(hid, respond = null) {
       });
     },
   };
+  hid._connected = true;
   return sent;
 }
 
