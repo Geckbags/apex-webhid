@@ -1573,9 +1573,7 @@ $('#lEffectColor').addEventListener('change', () => {
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
 });
 
-// Initial render on page load
-document.addEventListener('DOMContentLoaded', () => {
-  const effect = $('#lMode').value || 0;
-  const colour = $('#lEffectColor').value;
-  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
-});
+// Initial render on page load (module executes after DOM ready)
+const effect = $('#lMode').value || 0;
+const colour = $('#lEffectColor').value;
+renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
