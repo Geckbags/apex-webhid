@@ -147,7 +147,9 @@ $('#btnConnect').addEventListener('click', async () => {
 
 $('#btnDisconnect').addEventListener('click', async () => {
   try {
-    await hid.close?.();
+    await hid.close();
+  } catch (err) {
+    fail(err);
   } finally {
     setStatus('disconnected');
     setConnected(false);
@@ -453,6 +455,10 @@ $('#btnLightReadAll').addEventListener('click', async () => {
 });
 
 $('#btnSetLight').addEventListener('click', async () => {
+  if (!hid.device) {
+    showOutput('#lightOut', 'Not connected to keyboard. Press Connect first.');
+    return;
+  }
   try {
     // Read first so bytes 3..7 are preserved; then apply. Two round trips.
     const cfg = await refreshEffect();
@@ -498,6 +504,10 @@ $('#btnCustom').addEventListener('click', async () => {
 });
 
 $('#btnSetColour').addEventListener('click', async () => {
+  if (!hid.device) {
+    showOutput('#lightOut', 'Not connected to keyboard. Press Connect first.');
+    return;
+  }
   try {
     const effect = Number(lMode.value);
     const hexv = lEffectColor.value.slice(1);
@@ -1539,7 +1549,8 @@ function hsvToRgb(h, s, v) {
   };
 }
 
-function renderKeyboard(effect, brightness, speed, colour) {
+function renderKeyboard(effect, brightness, speed, colour, time) {
+  time = time || 0;
   const preview = $('#keyboardPreview');
   if (!preview) return;
   let html = '';
@@ -1602,7 +1613,7 @@ function renderKeyboard(effect, brightness, speed, colour) {
 
         case 5: // Flow L->R - RGB rainbow wave moving left to right
           {
-            const hue = (col / maxCols * 360 + Number(speed) * 3) % 360;
+            const hue = (col / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1613,7 +1624,7 @@ function renderKeyboard(effect, brightness, speed, colour) {
 
         case 6: // Flow R->L - RGB rainbow wave moving right to left
           {
-            const hue = ((maxCols - col) / maxCols * 360 + Number(speed) * 3) % 360;
+            const hue = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1624,7 +1635,7 @@ function renderKeyboard(effect, brightness, speed, colour) {
 
         case 7: // Flow Up->Dn - RGB rainbow wave moving top to bottom
           {
-            const hue = (row / rows * 360 + Number(speed) * 3) % 360;
+            const hue = (row / rows * 360 + Number(speed) * 3 + time * 0.5) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1635,7 +1646,7 @@ function renderKeyboard(effect, brightness, speed, colour) {
 
         case 8: // Flow Dn->Up - RGB rainbow wave moving bottom to top
           {
-            const hue = ((rows - row) / rows * 360 + Number(speed) * 3) % 360;
+            const hue = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.5) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1649,7 +1660,7 @@ function renderKeyboard(effect, brightness, speed, colour) {
             const centerRow = 2;
             const centerCol = 6;
             const dist = Math.sqrt(Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2));
-            const ripplePhase = (dist * 60 - Number(speed) * 10) % 360;
+            const ripplePhase = (dist * 60 - Number(speed) * 10 + time * 2) % 360;
             const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
             intensity = maxBright * (0.1 + 0.9 * ripple);
             keyR = colourR;
@@ -1665,7 +1676,7 @@ function renderKeyboard(effect, brightness, speed, colour) {
             const dx = Math.abs(col - centerCol);
             const dy = Math.abs(row - centerRow);
             const crossDist = Math.max(dx, dy);
-            const ripplePhase = (crossDist * 60 - Number(speed) * 10) % 360;
+            const ripplePhase = (crossDist * 60 - Number(speed) * 10 + time * 2) % 360;
             const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
             intensity = maxBright * (0.1 + 0.9 * ripple);
             keyR = colourR;
@@ -1679,7 +1690,7 @@ function renderKeyboard(effect, brightness, speed, colour) {
             const centerRow = 2;
             const centerCol = 6;
             const dist = Math.sqrt(Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2));
-            const ripplePhase = (dist * 45 - Number(speed) * 10) % 360;
+            const ripplePhase = (dist * 45 - Number(speed) * 10 + time * 2) % 360;
             const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
             intensity = maxBright * (0.1 + 0.9 * ripple);
             keyR = colourR;
@@ -1734,3 +1745,19 @@ $('#lEffectColor').addEventListener('change', () => {
 const effect = $('#lMode').value || 0;
 const colour = $('#lEffectColor').value;
 renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
+
+
+/* ---------------------------------------------------------------- animation loop */
+let animFrameId = null;
+let animStartTime = Date.now();
+
+function animateKeyboard() {
+  const effect = $('#lMode').value || 0;
+  const colour = $('#lEffectColor').value;
+  const time = (Date.now() - animStartTime) / 10;
+  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour, time);
+  animFrameId = requestAnimationFrame(animateKeyboard);
+}
+
+// Start animation loop
+animateKeyboard();
