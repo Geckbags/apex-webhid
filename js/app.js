@@ -1599,11 +1599,15 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
           keyB = colourB;
           break;
 
-        case 3: // Breath - pulsing: all keys same color at ~70% brightness
-          intensity = maxBright * 0.7;
-          keyR = colourR;
-          keyG = colourG;
-          keyB = colourB;
+        case 3: // Breath - pulsing: brightness oscillates over time
+          {
+            const breathPhase = (time * 0.3 * (101 - Number(speed))) % 360;
+            const breathWave = (Math.sin(breathPhase * Math.PI / 180) + 1) / 2;
+            intensity = maxBright * (0.2 + 0.8 * breathWave);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
           break;
 
         case 4: // Star - random twinkling
@@ -1738,7 +1742,7 @@ function updateLightingControls() {
   // Dot/Cross/Ripple (9-11): brightness + colour + speed
 
   const showBright = effect !== 0;
-  const showSpeed = [4, 5, 6, 7, 8, 9, 10, 11].includes(effect);
+  const showSpeed = [3, 4, 5, 6, 7, 8, 9, 10, 11].includes(effect);
   const showColour = [1, 2, 3, 4, 9, 10, 11].includes(effect);
 
   if (brightField) brightField.style.display = showBright ? '' : 'none';
