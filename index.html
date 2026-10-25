@@ -159,11 +159,13 @@
     background: radial-gradient(ellipse at 50% 0%, #1a1d24 0%, #0a0c10 70%);
     border: none; min-height: 100vh;
     display: flex; align-items: center; justify-content: center;
+    margin-left: -20px; margin-right: -20px;
+    width: calc(100% + 40px);
   }
   .hero-bg-keyboard {
     position: absolute; bottom: -5%; left: 50%; transform: translateX(-50%);
-    z-index: 1; opacity: .5; pointer-events: none;
-    width: 80vw; max-width: 1000px;
+    z-index: 1; opacity: .3; pointer-events: none;
+    width: 100%; max-width: 1200px;
   }
   .hero-bg-keyboard .row { display: flex; gap: 3px; justify-content: center; margin-bottom: 3px; }
   .hero-bg-keyboard .key {
@@ -190,8 +192,8 @@
   .github-link-hero:hover { color: var(--fg); border-color: var(--accent); background: rgba(30, 34, 42, 0.8); }
   .hero-glow {
     position: absolute; width: 600px; height: 600px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,138,61,.1) 0%, transparent 70%);
-    top: 40%; left: 50%; transform: translate(-50%, -50%); z-index: 1; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 40%, rgba(255,138,61,.08) 0%, transparent 60%);
+    inset: 0; z-index: 1; pointer-events: none;
   }
   @media (max-width: 768px) {
     .hero-bg-keyboard {
