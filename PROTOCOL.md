@@ -1010,8 +1010,9 @@ the Fn key as well.
 
 8.1-8.3 are read from `setupUi` strings and the tip file: **high confidence**.
 8.4-8.6 are inferences from the absence of a matching opcode among the 39
-enumerated in §3: **medium confidence** — a transport switch could in principle
-hide inside the opaque `0x56` 30-byte config blob, which is not yet decoded.
+enumerated in §3: **medium confidence**. The only opaque blob that could have
+hidden a transport switch, the 30-byte `0x56` payload, is now decoded as a
+config-table name write (§8.21.7), so it is not that switch.
 8.7 follows directly from §6 plus the tip file: **high confidence**.
 
 ## 9. WebHID viability
@@ -1148,11 +1149,14 @@ Ordered by what most limits feature parity.
   names a Qt widget pointer on a different class, and an offset match is not an
   identity. The read path (`0x2C`) works; writes stay disabled because mispacking
   an actuation slot is unrecoverable without a factory reset.
-- **`0x56` setConfigInfo**, the 30-byte config blob. Suspected home of the
-  transport-switch state that §8.4 says has no other opcode; not decoded. Note
-  that decoding it would not be enough to expose it: writing the transport state
-  could strand the board in a mode WebHID cannot reach, which is the same class
-  of unrecoverable outcome as a bad lighting write (§12).
+- **`0x56` setConfigInfo selector semantics.** The frame is solved (§8.21.7):
+  `[selector][28-byte UTF-8 name][zero fill]` with a fixed LEN of 30, and both
+  producers pass selector `0` with a config-table name. The transport-switch
+  hypothesis is dead - this is a name write. What no static analysis can settle
+  is what the device does with selector `0` (rename the active profile? a
+  config-table row?) and what a nonzero selector would address. It stays gated:
+  a wrong name is recoverable, but the device's interpretation has never been
+  observed.
 - **The value encodings** behind the `0x50`/`0x5E` settings. The blob's layout
   is solved (§8.14) and eight settings are writable, but nothing in the binary
   says which byte is 500 Hz or what the switch values mean. The UI shows raw
@@ -1453,12 +1457,12 @@ Decompiling the full send chain (`FUN_140037b30` -> `FUN_1400b0660` ->
 §8.11.1 left open:
 
 - **Paging.** The send slot fills `sender+0x5C` with the staged list length,
-  `+0x5B` with the per-page key count `DAT_140194994 - 4 = 0x7A - 4 = 118`, and
-  `+0x5A`/`+0x59` with page/total `1 / ceil(count / 118)`. Each frame therefore
-  carries `118` keys and `LEN = keys + 4`, fixed except on the last page, where
-  `LEN = remaining + 4` and the key slice starts at `(page-1) * 118`. A whole
-  APEX200 paint fits one frame, but the frame layout is genuinely paged, not
-  fixed-length. The completion slot is the standard paged-write continuation:
+  `+0x5B` with the per-page key count `DAT_140194994 - 4 = 0x3A - 4 = 54`, and
+  `+0x5A`/`+0x59` with page/total `1 / ceil(count / 54)`. Each frame therefore
+  carries `54` keys and `LEN = keys + 4`, fixed except on the last page, where
+  `LEN = remaining + 4` and the key slice starts at `(page-1) * 54`. A whole
+  85-key APEX200 paint needs two frames at this budget, which is why the frame
+  layout is genuinely paged, not fixed-length. The completion slot is the standard paged-write continuation:
   on the `0x90` ack it compares the response opcode against `+0x31`, stops the
   completion timer, emits progress, and while `frame < total` sets
   `+0x5A = frame+1`, `+0x59 = total`, clears the retry counter and rebuilds —
@@ -2265,9 +2269,9 @@ for the edited key - record node `[keyItem, type, hValue, lValue]`, keyItem read
 from the widget model at `model+0x2A` - and sends
 `[layer][keyItem][type][lValue][hValue]` with `LEN = 3*1 + 2 = 5`, layer from
 `form+0x38`, completion timer disarmed (§8.15.1). The import path uses the full
-range: whole layer maps of up to **40 records per frame**
-(`0x5B = floor((0x7A - 2) / 3) = 40`, `0x59 = ceil(count / 40)` - a full page's
-LEN is exactly `0x7A`), advanced by the continuation slot `FUN_14009bea0` on
+range: whole layer maps of up to **18 records per frame**
+(`0x5B = floor((0x3A - 2) / 3) = 18`, `0x59 = ceil(count / 18)` - a full page's
+LEN is exactly `0x3A`), advanced by the continuation slot `FUN_14009bea0` on
 every `0xA0` ack: it stops the timer, emits progress through `FUN_14001b8b0`
 (carrying the layer pointer), and while `frame < total` bumps `0x5A`, clears
 the retry counter and rebuilds. An empty map is refused with the error signal
@@ -2418,19 +2422,32 @@ below are all of the form `stride * remaining + prefix`.
 
 | Op | Payload (after the 6-byte header) | LEN | Page stride | Status |
 |---|---|---:|---:|---|
-| `0x10` | `[brightness][R][G][B]` + key-index list | `N + 4` | `frameMax - 4` = 124 | frame decoded; group-expanded keys |
-| `0x14` | `N` x 8-byte effect record, permuted `[0,2,3,4,1,5,6,7]`, **no prefix** | `8N` | `frameMax / 8` = 16 | frame decoded; never run |
-| `0x20` | `[layer][firstKeyItem]` + `N` x `[type,lValue,hValue]` | `3N + 2` | `(frameMax-2)/3` = 42 | all bytes named; never run |
+| `0x10` | `[brightness][R][G][B]` + key-index list | `N + 4` | `frameMax - 4` = 54 | frame decoded; group-expanded keys |
+| `0x14` | `N` x 8-byte effect record, permuted `[0,2,3,4,1,5,6,7]`, **no prefix** | `8N` | `frameMax / 8` = 7 | frame decoded; never run |
+| `0x20` | `[layer][firstKeyItem]` + `N` x `[type,lValue,hValue]` | `3N + 2` | `(frameMax-2)/3` = 18 | all bytes named; never run |
 | `0x23` | `N` x fixed 19-byte high-key slot | `19N` | `frameMax/19` = 3 | decoded; config-import only, never run (§8.21.8) |
-| `0x24` | `[layer]` + caller-built byte list | `N + 1` | `frameMax - 1` = 127 | frame decoded; list meaning unproven |
-| `0x26` | `[trigger lo][trigger hi]` + key-index list | `N + 2` | `frameMax - 2` = 126 | packing decoded; never run |
-| `0x27` | `N` x 8 `[keyItem,0,model,quick,qt,rt]` | `8N` | `frameMax / 8` = 16 | packing decoded; never run |
-| `0x28` | `[firstKeyItem][count]` + `N` x 8 `[trigger,model,quick,qt,rt]` | `8N + 2` | `frameMax / 8` = 16 | packing decoded; never run |
-| `0x53` | one boolean byte (`sender+0x298`) | `1` | - | decoded; calibration safety gate |
-| `0x54` | *(none)* | `0` | - | decoded; calibration safety gate |
-| `0x56` | `[selector]` + UTF-8 name, zero-padded | `30` fixed | - | decoded; device meaning unverified |
+| `0x24` | `[layer]` + caller-built byte list | `N + 1` | `frameMax - 1` = 57 | frame decoded; list meaning unproven |
+| `0x26` | `[trigger lo][trigger hi]` + key-index list | `N + 2` | `frameMax - 2` = 56 | packing decoded; never run |
+| `0x27` | `N` x 8 `[keyItem,0,model,quick,qt,rt]` | `8N` | `frameMax / 8` = 7 | packing decoded; never run |
+| `0x28` | `[firstKeyItem][count]` + `N` x 8 `[trigger,model,quick,qt,rt]` | `8N + 2` | `(frameMax-1)/8` = 7 | packing decoded; never run |
+| `0x53` | one boolean byte (`sender+0x298`) | `1` | single frame (count 1) | decoded; calibration safety gate |
+| `0x54` | *(none)* | `0` | single frame | decoded; calibration safety gate |
+| `0x56` | `[selector]` + UTF-8 name, zero-padded | `30` fixed | single frame | decoded; device meaning unverified |
 
-`frameMax` is `DAT_140194994`, the report size read from the HID descriptor.
+`frameMax` is `DAT_140194994`, the payload budget after the six-byte header.
+`FUN_140095b40` sets it to the matched collection's report length minus six.
+The app's static device list (`FUN_140007fa0`) carries two entries for VID:PID
+`314B:1026`:
+
+| Usage page | Usage | Report length | `frameMax` |
+|---|---:|---:|---:|
+| `0xFF00` | 1 | `0x80` | `0x7A` |
+| `0xFF02` | 2 | `0x40` | `0x3A` |
+
+The APEX200's vendor collection is the `0xFF02` entry, so every per-page number
+in this section is computed with `frameMax = 0x3A` (64 - 6 = 58 bytes). The
+`0x7A` figures that earlier revisions printed here were the other entry's
+values, not the APEX200's.
 
 #### 8.21.1 `0x14` has no header bytes
 
@@ -2468,9 +2485,9 @@ The rest of the send chain is now verified end to end:
   `param_1+0x38`, and when the previous table's paging is done
   (`total <= frame`) it hands the staged effect map at `param_1+0x80` straight
   to the wrapper with the completion timer armed.
-- **Paging is 15 records per frame.** The wrapper computes
-  `0x5B = 0x7A / 8 = 15`, `0x5A = 1`, `0x59 = ceil(count / 15)`; a full page
-  sends `LEN = 15 * 8 = 120`, the last page `LEN = remaining * 8`. An empty map
+- **Paging is 7 records per frame.** The wrapper computes
+  `0x5B = 0x3A / 8 = 7`, `0x5A = 1`, `0x59 = ceil(count / 7)`; a full page
+  sends `LEN = 7 * 8 = 56`, the last page `LEN = remaining * 8`. An empty map
   is refused with the error signal instead of an empty frame.
 - **The continuation slot is the standard shape.** `FUN_14009b3e0` expects the
   `0x94` ack (`+0x31` compare), stops the completion timer, emits progress
@@ -2586,8 +2603,8 @@ the absence of a hardware run, is why `0x24` stays gated.
 
 The wrapper now verifies that reading from the sender side. `FUN_1400b0cb0`
 stages the list at `sender+0xD8` (`+0xE0` data, `+0xE8` size), sets
-`+0x31 = 0xA4`, computes `0x5B = 0x7A - 1 = 121` bytes per page
-(`0x59 = ceil(count / 121)` - always `1` for a two-byte list, which is why no
+`+0x31 = 0xA4`, computes `0x5B = 0x3A - 1 = 57` bytes per page
+(`0x59 = ceil(count / 57)` - always `1` for a two-byte list, which is why no
 continuation slot exists), and then, with the layer byte at `+0xC0` choosing
 the container, **empties the sender's cached layer map at `+0xC8` (layer 0) or
 `+0xD0` (layer 1)** with a destructor call and nothing replacing it. The app
@@ -2642,8 +2659,8 @@ The zero is written as a literal, not copied - the producer `FUN_14004b1d0`
 zeroes the source record's `trigger` field, so `0x27` never carries an actuation
 point. The vector's nodes carry a 16-byte stride (the allocator element size in
 the wrapper's deallocate call); the page budget is separate - wrapper
-`FUN_1400b10f0` computes `0x5B = 122 >> 3 = 15` records per frame, so a full
-`0x27` page carries 15 x 8 = 120 record bytes.
+`FUN_1400b10f0` computes `0x5B = 0x3A >> 3 = 7` records per frame, so a full
+`0x27` page carries 7 x 8 = 56 record bytes.
 
 **`0x28` - the full record for all keys**
 
@@ -2674,13 +2691,13 @@ All three send chains are now verified past the builder:
 
 | opcode | wrapper | expected | staging | per page | continuation |
 |---|---|---|---|---|---|
-| `0x26` | `FUN_1400b1280` | `+0x31 = 0xA6` | 10-byte record at `+0x25E..0x267`, key list at `+0x268/+0x270/+0x278` | `0x5B = 0x7A - 2 = 120` keys | `FUN_14009cae0` |
-| `0x27` | `FUN_1400b10f0` | `+0x31 = 0xA7` | node vector at `+0x280/+0x288/+0x290` | `0x5B = 122 >> 3 = 15` records | `FUN_14009c850` |
-| `0x28` | `FUN_1400b13c0` | `+0x31 = 0xA8` | `QMap` at `+0x200` | `0x5B = 121 >> 3 = 15` records | `FUN_14009cd70` |
+| `0x26` | `FUN_1400b1280` | `+0x31 = 0xA6` | 10-byte record at `+0x25E..0x267`, key list at `+0x268/+0x270/+0x278` | `0x5B = 0x3A - 2 = 56` keys | `FUN_14009cae0` |
+| `0x27` | `FUN_1400b10f0` | `+0x31 = 0xA7` | node vector at `+0x280/+0x288/+0x290` | `0x5B = 0x3A >> 3 = 7` records | `FUN_14009c850` |
+| `0x28` | `FUN_1400b13c0` | `+0x31 = 0xA8` | `QMap` at `+0x200` | `0x5B = 0x39 >> 3 = 7` records | `FUN_14009cd70` |
 
-The budgets follow the LEN arithmetic: a full `0x26` page is 120 + 2 = `0x7A`
-bytes, a full `0x27` page is 15 x 8 = 120, a full `0x28` page is
-15 x 8 + 2 = `0x7A`. `FUN_1400b1280` copies the record with one `movsd`
+The budgets follow the LEN arithmetic: a full `0x26` page is 56 + 2 = `0x3A`
+bytes, a full `0x27` page is 7 x 8 = 56, a full `0x28` page is
+7 x 8 + 2 = `0x3A`. `FUN_1400b1280` copies the record with one `movsd`
 (the first eight bytes) plus one `movzx word` (bytes 8 and 9) - which pins
 record byte 2 to `sender+0x260` and byte 3 to `sender+0x261`, the `trigger` u16
 the builder emits as payload[0..1]. The three continuation slots were read
@@ -2721,9 +2738,33 @@ empty frame.
 ```
 
 Wrapper `FUN_1400b1240` sets `sender+0x298` from its fourth argument, then
-`+0x5C = 1`, `+0x5B = frameMax`, and frame/order = 1/1. The four call sites pass
-`0` (start) and `1` (stop), so the byte is a boolean. `0x54` is the matching
-"save" step with an empty body.
+`+0x5C = 1`, `+0x5B = frameMax`, and frame/order = 1/1. Its four call sites were
+read with their arguments:
+
+| Call site | Guard | Timer flag | Byte |
+|---|---|---|---|
+| `0x140056540` | `form+0x38` set, clears it; also needs `param_2` nonzero | `1` | `0` |
+| `0x140056580` | `form+0x38` set, clears it | `1` | `0` |
+| `0x1400567a0` | clears `form+0x38`, enables widget `+0xA0`, disables `+0xA8`/`+0xD8`, `QWidget::update` | `1` | `0` |
+| `0x140058420` | calibration-state receive slot (`usb_receive_get_calibration_state`): fills its item list through `FUN_14008a400`, then `QWidget::update` | `0` | `1` |
+
+The three enter paths send `0` and arm the reply timer for the `0xD3` ack; the
+calibration-state slot sends `1` with the timer disarmed. The byte is a boolean,
+and the response name (`open_calibration_time`, §8.20) plus the call order make
+`0` = begin and `1` = end the natural reading. What the device does with it is
+still only named by its signal; the write itself was never run here.
+
+`0x54` is the matching "save calibration" step. Its wrapper `FUN_1400b05a0`
+sets the same state fields with `+0x31 = 0xD4` and an empty body (`LEN = 0`),
+then calls builder `FUN_1400a51a0`, which builds the frame inline:
+
+- header `[0]=0` (report id), `[1]=0xFA`, `[2]=0x54`, `[3]=page`, `[4]=total`,
+  `[5]=0`, `[6]=LEN=0`, then `hid_write` directly;
+- when `*(int*)(this+0x10) == 1` (the non-HID transport) it hands the same
+  buffer to `FUN_1400bc150` instead of `hid_write`;
+- on failure it logs the `hid_error` text through `FUN_140019810`;
+- it starts the one-second reply timer (`QTimer::start(this+0x38, 1000)`) when
+  the caller set the arm flag.
 
 Both stay gated for the original reason: a wrong calibration value is a
 factory-reset recovery, and the reads (`0x52`, `0x5B`) remain exposed.
@@ -2738,10 +2779,23 @@ factory-reset recovery, and the reads (`0x52`, `0x5B`) remain exposed.
 1400a5be7: mov   byte [rdi+rcx+7], al   ; payload[1+i] = UTF-8 name byte
 ```
 
-The source is a `QString` at `sender+0x210`. Both producers
-(`FUN_140021780`, `FUN_14008e240`) pass selector `0` and a name read from the
-profile list / `SELECT * FROM config_table`, so this is `setConfigInfo` in the
-ordinary sense: a **config-table entry's name**.
+The source is a `QString` at `sender+0x210`. Wrapper `FUN_1400b0610` copies the
+selector into `+0x208`, the name into `+0x210`, sets `+0x31 = 0xD6`, clears the
+retry byte and sets page state `+0x59 = +0x5A = 1`, then calls the builder. Both
+producers pass selector `0` and a name read from the profile list / `SELECT *
+FROM config_table`, so this is `setConfigInfo` in the ordinary sense: a
+**config-table entry's name**.
+
+- `FUN_140021780` is the rename/apply path. It reads the selected model index
+  through the view at `model+0x98`, converts it with `QVariant::toString`,
+  stores the result in the label at `model+0xB0`, sets the item view's
+  selection mode to none, and sends with the timer flag `0`.
+- `FUN_14008e240` is the config-import chain start (§8.22.2 step 1). The name is
+  the first `config_table` row read into the util's `+0x40`; selector `0`,
+  timer flag `0`.
+
+Neither producer arms the reply timer, so a `0x56` write is fire-and-forget in
+the app.
 
 There is an off-by-one in the app worth recording: LEN is 30 but the loop writes
 at most 28 name bytes at `payload[1..28]`, leaving `payload[29]` as the zero fill
@@ -2749,9 +2803,9 @@ from the memset. A compatible implementation must reproduce the 30-byte block,
 not 29.
 
 This evidence **does not support** the §12 hypothesis that `0x56` is the wireless
-transport switch - the response name is `set_config_table_info` and the only
-producer is a rename dialog. It stays gated because the device's interpretation
-of the selector byte and the name has never been observed.
+transport switch - the response name is `set_config_table_info` and the producers
+are a config rename and the import chain. It stays gated because the device's
+interpretation of the selector byte and the name has never been observed.
 
 #### 8.21.8 `0x23` - a paged 19-byte bulk write, used only by config import
 
@@ -3308,10 +3362,10 @@ remembered.
 | `0x42` | `sendGetMacroConfig` | Exposed — driver helper + UI |
 | `0x50` | `sendSetWholeParam` | Exposed — 20-byte blob fully named, 8 settings (§8.14) |
 | `0x52` | `sendGetCalibrationState` | Exposed — driver helper + UI |
-| `0x53` | `sendSetReportCalibration` | Gated — calibration write; a wrong value needs a factory reset |
-| `0x54` | `sendSaveCalibration` | Gated — calibration write; a wrong value needs a factory reset |
+| `0x53` | `sendSetReportCalibration` | Gated — begin/end calibration flag; full chain decoded (§8.21.6); never run, wrong calibration needs a factory reset |
+| `0x54` | `sendSaveCalibration` | Gated — empty save-calibration frame; builder and 1 s timer decoded (§8.21.6); never run, wrong calibration needs a factory reset |
 | `0x55` | `sendSwitchConfigTable` | Exposed — driver helper + UI |
-| `0x56` | `sendSetConfigInfo` | Gated — starts the config-import chain with the profile name (§8.21.7, §8.22.2); device meaning unverified |
+| `0x56` | `sendSetConfigInfo` | Gated — 30-byte config-name write with selector 0 (§8.21.7, §8.22.2); device meaning unverified |
 | `0x57` | `sendGetConfigInfo` | Exposed — driver helper + UI |
 | `0x58` | `sendAddConfigTable` | Exposed — driver helper + UI |
 | `0x59` | `sendDelConfigTable` | Exposed — driver helper + UI |
