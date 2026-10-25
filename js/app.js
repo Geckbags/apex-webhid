@@ -1501,3 +1501,81 @@ $('#vendorPill').textContent =
 // an ES module has necessarily finished evaluating, so a test that clicks a
 // button can otherwise run against a page whose listeners do not exist yet.
 document.body.dataset.appReady = '1';
+/* ---------------------------------------------------------------- keyboard preview */
+
+// QWERTY keycap labels in order (row-major)
+const QWERTY = [
+  ['Esc', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'Del'],
+  ['Tab', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'Bsp', 'Ent'],
+  ['Caps', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'Scl', 'Ent'],
+  ['Shift', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', 'Com', 'Dot', 'Shift'],
+  ['Ctrl', 'Win', 'Alt', ' ', 'Alt', 'Menu', 'Ctrl'],
+];
+
+function renderKeyboard(effect, brightness, speed, colour) {
+  const preview = $('#keyboardPreview');
+  if (!preview) return;
+  let html = '';
+  const effectIdx = Number(effect) || 0;
+  const isStatic = effectIdx === 1;
+  const colourR = parseInt(colour.slice(1, 3), 16);
+  const colourG = parseInt(colour.slice(3, 5), 16);
+  const colourB = parseInt(colour.slice(5, 7), 16);
+  const finalR = Math.min(255, Math.max(0, Math.round(colourR * brightness / 100)));
+  const finalG = Math.min(255, Math.max(0, Math.round(colourG * brightness / 100)));
+  const finalB = Math.min(255, Math.max(0, Math.round(colourB * brightness / 100)));
+
+  for (let row = 0; row < QWERTY.length; row++) {
+    html += '<div class="row">';
+    for (let col = 0; col < QWERTY[row].length; col++) {
+      const label = QWERTY[row][col];
+      if (!label) {
+        html += '<div class="key empty"></div>';
+        continue;
+      }
+      let keyBg = '#ffffff';
+      if (isStatic) {
+        keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
+      } else if (effectIdx >= 4 && effectIdx <= 11) {
+        keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
+      } else {
+        keyBg = '#4a4a4a';
+      }
+      html += `<div class="key" title="${label}" style="background: ${keyBg}; color: ${finalR+finalG+finalB > 300 ? '#000' : '#fff'}">
+        ${label}
+      </div>`;
+    }
+    html += '</div>';
+  }
+  preview.innerHTML = html;
+}
+
+// Live-update keyboard preview when controls change
+$('#lMode').addEventListener('change', () => {
+  const effect = $('#lMode').value || 0;
+  const colour = $('#lEffectColor').value;
+  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
+});
+$('#lBright').addEventListener('input', () => {
+  const effect = $('#lMode').value || 0;
+  const colour = $('#lEffectColor').value;
+  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
+  $('#lBrightOut').textContent = $('#lBright').value;
+});
+$('#lSpeed').addEventListener('input', () => {
+  const effect = $('#lMode').value || 0;
+  const colour = $('#lEffectColor').value;
+  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
+  $('#lSpeedOut').textContent = $('#lSpeed').value;
+});
+$('#lEffectColor').addEventListener('change', () => {
+  const effect = $('#lMode').value || 0;
+  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
+});
+
+// Initial render on page load
+document.addEventListener('DOMContentLoaded', () => {
+  const effect = $('#lMode').value || 0;
+  const colour = $('#lEffectColor').value;
+  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
+});
