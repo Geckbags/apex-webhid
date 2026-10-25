@@ -1831,3 +1831,97 @@ function animateKeyboard() {
 
 // Start animation loop
 animateKeyboard();
+
+/* ---------------------------------------------------------------- hero keyboard animation */
+
+const HERO_EFFECTS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
+
+function renderHeroKeyboard(effect, brightness, speed, colour, time) {
+  const preview = document.getElementById('heroKeyboard');
+  if (!preview) return;
+  let html = '';
+  const effectIdx = Number(effect) || 0;
+  const colourR = parseInt(colour.slice(1, 3), 16);
+  const colourG = parseInt(colour.slice(3, 5), 16);
+  const colourB = parseInt(colour.slice(5, 7), 16);
+  const maxBright = Number(brightness) / 100;
+  const rows = QWERTY.length;
+  const maxCols = Math.max(...QWERTY.map(r => r.length));
+
+  for (let row = 0; row < rows; row++) {
+    html += '<div class="row">';
+    for (let col = 0; col < QWERTY[row].length; col++) {
+      const label = QWERTY[row][col];
+      if (!label) { html += '<div class="key empty"></div>'; continue; }
+      let keyR = 0, keyG = 0, keyB = 0, intensity = 0;
+      switch (effectIdx) {
+        case 3:
+          { const bp = (time * 0.3 * (101 - Number(speed))) % 360; const bw = (Math.sin(bp * Math.PI / 180) + 1) / 2; intensity = maxBright * (0.2 + 0.8 * bw); keyR = colourR; keyG = colourG; keyB = colourB; }
+          break;
+        case 4:
+          { const sp = starBrightness(row, col, Math.floor(Number(speed) / 10) + Math.floor(time / 100)); intensity = maxBright * sp; keyR = colourR; keyG = colourG; keyB = colourB; }
+          break;
+        case 5:
+          { const h = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          break;
+        case 6:
+          { const h = (col / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          break;
+        case 7:
+          { const h = (row / rows * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          break;
+        case 8:
+          { const h = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          break;
+        case 9:
+          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 60 - Number(speed) * 10 + time * 2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
+          break;
+        case 10:
+          { const cr = 2, cc = 6; const dx = Math.abs(col - cc), dy = Math.abs(row - cr); const cd = Math.max(dx, dy); const rp = (cd * 60 - Number(speed) * 10 + time * 2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
+          break;
+        case 11:
+          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 45 - Number(speed) * 10 + time * 2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
+          break;
+        default: intensity = 0;
+      }
+      const fR = Math.round(keyR * intensity), fG = Math.round(keyG * intensity), fB = Math.round(keyB * intensity);
+      const bg = `rgb(${fR}, ${fG}, ${fB})`;
+      const tc = (fR + fG + fB > 300) ? '#000' : '#fff';
+      html += `<div class="key" style="background: ${bg}; color: ${tc}">${label}</div>`;
+    }
+    html += '</div>';
+  }
+  preview.innerHTML = html;
+}
+
+let heroEffectIndex = 0;
+let heroAnimStartTime = Date.now();
+let heroAnimFrameId = null;
+
+function animateHeroKeyboard() {
+  const effect = HERO_EFFECTS[heroEffectIndex];
+  const time = (Date.now() - heroAnimStartTime) / 10;
+  renderHeroKeyboard(effect, 100, 50, '#ff8a3d', time);
+  if (time > (heroEffectIndex + 1) * 400) {
+    heroEffectIndex = (heroEffectIndex + 1) % HERO_EFFECTS.length;
+  }
+  heroAnimFrameId = requestAnimationFrame(animateHeroKeyboard);
+}
+
+function startHeroAnimation() {
+  const heroKb = document.getElementById('heroKeyboard');
+  if (heroKb && !heroAnimFrameId) {
+    heroAnimStartTime = Date.now();
+    heroEffectIndex = 0;
+    animateHeroKeyboard();
+  }
+}
+
+setTimeout(startHeroAnimation, 500);
+
+// Hero connect button
+const btn = $('#btnHeroConnect');
+if (btn) btn.addEventListener('click', () => {
+  const connectBtn = $('#btnConnect');
+  if (connectBtn) connectBtn.click();
+});

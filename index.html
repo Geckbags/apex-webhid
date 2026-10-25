@@ -153,9 +153,35 @@
   .modal ul li { margin-bottom: 6px; }
   .modal .actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
   .modal .actions button { padding: 8px 16px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
-  td:first-child { color: var(--muted); width: 42%; }
+  .hidden { display: none !important; }
+  .hero {
+    position: relative; overflow: hidden; border-radius: 12px; margin-bottom: 14px;
+    background: linear-gradient(135deg, #1a1d24 0%, #0f1115 100%);
+    border: 1px solid var(--line); padding: 40px 30px; min-height: 320px;
+    display: flex; align-items: center; gap: 40px; flex-wrap: wrap;
+  }
+  .hero-content { flex: 1; min-width: 280px; z-index: 2; }
+  .hero h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: .02em; }
+  .hero h1 span { color: var(--accent); }
+  .hero-subtitle { font-size: 14px; color: var(--muted); margin: 0 0 12px; text-transform: uppercase; letter-spacing: .1em; }
+  .hero-desc { font-size: 14px; color: var(--fg); max-width: 480px; margin: 0 0 20px; line-height: 1.6; }
+  .hero-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .github-link-hero {
+    display: inline-flex; align-items: center; gap: 6px; color: var(--muted);
+    text-decoration: none; padding: 8px 12px; border: 1px solid var(--line);
+    border-radius: 7px; font-size: 13px; transition: color .15s, border-color .15s;
+  }
+  .github-link-hero:hover { color: var(--fg); border-color: #3b4354; }
+  .hero-keyboard {
+    flex: 1; min-width: 300px; z-index: 1; opacity: .6;
+    transform: perspective(800px) rotateX(15deg) rotateY(-5deg);
+  }
+  .hero-keyboard .row { display: flex; gap: 3px; justify-content: center; margin-bottom: 3px; }
+  .hero-keyboard .key {
+    width: 32px; height: 22px; border-radius: 4px; font-size: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel2); border: 1px solid var(--line); color: var(--muted);
+  }
 </style>
 </head>
 <body>
@@ -205,10 +231,34 @@
     <button data-tab="trigger">Hall Effect</button>
     <button data-tab="console">Protocol Console</button>
     <button data-tab="traffic">Traffic</button>
+    <button data-tab="developer">Developer</button>
   </div>
 
-  <!-- OVERVIEW -->
+  <!-- OVERVIEW (Landing Page) -->
   <section id="overview" class="active">
+    <div class="hero">
+      <div class="hero-content">
+        <h1>ANT ESPORTS <span>APEX 200</span></h1>
+        <p class="hero-subtitle">WebHID Control Panel</p>
+        <p class="hero-desc">Configure your APEX 200 keyboard directly from the browser. Lighting, key remapping, macros, triggers, and more — no software installation required.</p>
+        <div class="hero-actions">
+          <button id="btnHeroConnect" class="primary">Connect Keyboard</button>
+          <a href="https://github.com/Geckbags/apex-webhid" target="_blank" rel="noopener noreferrer" class="github-link-hero">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            GitHub
+          </a>
+        </div>
+      </div>
+      <div class="hero-keyboard" id="heroKeyboard">
+        <!-- Keyboard rendered by JavaScript -->
+      </div>
+    </div>
+  </section>
+
+  <!-- DEVELOPER -->
+  <section id="developer">
     <div class="banner warn">
       Verified statically from the Windows app — this has <b>not</b> been exercised against
       real hardware yet. Run <code>cli/apexctl.py descriptor</code> first to confirm which
