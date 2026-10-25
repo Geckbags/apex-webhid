@@ -50,6 +50,29 @@ frame.addEventListener('load', async () => {
   const dupes = [...new Set(allIds.filter((id, i) => allIds.indexOf(id) !== i))];
   ok(dupes.length === 0, 'no duplicate element ids', dupes.join(', '));
 
+  // Every panel must be reachable from the tab bar. A section with no tab is
+  // dead UI: its ids exist and its handlers are wired, so every check above
+  // passes, but no user can ever open it.
+  const sections = [...doc.querySelectorAll('main > section[id]')].map((s) => s.id);
+  const tabs = [...doc.querySelectorAll('.tabs button[data-tab]')].map((b) => b.dataset.tab);
+  const orphanSections = sections.filter((id) => !tabs.includes(id));
+  ok(orphanSections.length === 0, `all ${sections.length} sections have a tab`,
+     orphanSections.length ? `unreachable: ${orphanSections.join(', ')}` : '');
+  const deadTabs = tabs.filter((id) => !sections.includes(id));
+  ok(deadTabs.length === 0, `all ${tabs.length} tabs target a section`,
+     deadTabs.length ? `dangling: ${deadTabs.join(', ')}` : '');
+  ok(new Set(tabs).size === tabs.length, 'no duplicate tabs', tabs.join(','));
+
+  // And each tab must actually open its own section, exclusively.
+  for (const btn of [...doc.querySelectorAll('.tabs button[data-tab]')]) {
+    btn.click();
+    const active = [...doc.querySelectorAll('main > section[id]')]
+      .filter((s) => s.classList.contains('active'));
+    ok(active.length === 1 && active[0].id === btn.dataset.tab,
+       `tab ${btn.dataset.tab} opens its section`,
+       active.map((s) => s.id).join(',') || 'none');
+  }
+
   // The ES module graph must have evaluated without throwing.
   ok(typeof win.ApexHid !== 'undefined' || doc.querySelector('script[type=module]') !== null,
      'module graph present in page');

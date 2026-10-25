@@ -1142,6 +1142,42 @@ $('#btnDecodeHighKeys').addEventListener('click', async () => {
   } catch (err) { fail(err); showOutput('#highKeyOut', String(err.message ?? err)); }
 });
 
+// HighKeyForm edits an existing binding in place; this loads a 0x2B readback
+// into the same editor fields the 0x22 write uses, so Add can overwrite. The
+// data bytes are copied from the decoded slot - no field is guessed.
+$('#btnLoadHighKey').addEventListener('click', async () => {
+  try {
+    const key = Number($('#hIndex').value) & 0xff;
+    const r = await hid.readHighKeys();
+    const recs = ApexHid.decodeHighKeyPages(r.frames.map((f) => f.payload));
+    const d = recs.find((x) => !x.error && x.key === key);
+    if (!d) {
+      showOutput('#highKeyOut', `no 0x2B binding for key 0x${key.toString(16).padStart(2, '0')}`);
+      return;
+    }
+    const opt = [...$('#hType').options].find((o) => o.value === d.modifier.toUpperCase());
+    if (!opt) throw new Error(`binding has modifier ${d.modifier}, which this editor cannot write`);
+    $('#hType').value = opt.value;
+    syncSocdRow();
+    if (d.modifier === 'socd') {
+      const [key1, key2, mode] = d.data;
+      if (mode > 3) throw new Error(`SOCD mode ${mode} is outside the four documented modes`);
+      $('#hSocdMode').value = String(mode);
+      showOutput('#highKeyOut',
+        `loaded SOCD binding for key 0x${key.toString(16).padStart(2, '0')}: ` +
+        `key1=0x${key1.toString(16)} key2=0x${key2.toString(16)} mode=${mode}\n` +
+        (key1 === 0xff && key2 === 0xff
+          ? 'partner keys are the dialog default (0xFF); Add will send the same values'
+          : 'WARNING: partner keys are not 0xFF; this editor sends the dialog default 0xFF/0xFF on Add'));
+    } else {
+      $('#hData').value = d.data.map((b) => b.toString(16).padStart(2, '0')).join(' ');
+      showOutput('#highKeyOut',
+        `loaded ${d.modifier.toUpperCase()} binding for key 0x${key.toString(16).padStart(2, '0')}: ` +
+        `${d.data.length} data byte(s) copied into the editor`);
+    }
+  } catch (err) { fail(err); showOutput('#highKeyOut', String(err.message ?? err)); }
+});
+
 $('#btnAddHighKey').addEventListener('click', async () => {
   try {
     const key = Number($('#hIndex').value) & 0xff;
