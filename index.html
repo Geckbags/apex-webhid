@@ -155,15 +155,15 @@
   .modal .actions button { padding: 8px 16px; }
   .hidden { display: none !important; }
   .hero {
-    position: relative; overflow: hidden; border-radius: 0; margin-bottom: 0;
+    position: relative; overflow: visible; border-radius: 0; margin-bottom: 0;
     background: radial-gradient(ellipse at 50% 0%, #1a1d24 0%, #0a0c10 70%);
     border: none; min-height: 100vh;
     display: flex; align-items: center; justify-content: center;
   }
   .hero-bg-keyboard {
-    position: absolute; bottom: -5%; left: 50%; transform: translateX(-50%) perspective(1000px) rotateX(35deg);
-    z-index: 1; opacity: .35; pointer-events: none;
-    width: 95vw; max-width: 1400px;
+    position: absolute; bottom: 5%; left: 50%; transform: translateX(-50%);
+    z-index: 1; opacity: .3; pointer-events: none;
+    width: 90vw; max-width: 1200px;
   }
   .hero-bg-keyboard .row { display: flex; gap: clamp(2px, 0.3vw, 5px); justify-content: center; margin-bottom: clamp(2px, 0.3vw, 5px); }
   .hero-bg-keyboard .key {
@@ -195,14 +195,14 @@
   }
   @media (max-width: 768px) {
     .hero-bg-keyboard {
-      transform: translateX(-50%) perspective(800px) rotateX(20deg) scale(0.8);
-      bottom: 0%;
+      transform: translateX(-50%) scale(0.7);
+      bottom: 2%;
     }
     .hero-content { padding: 40px 16px; }
   }
   @media (max-width: 480px) {
     .hero-bg-keyboard {
-      transform: translateX(-50%) perspective(600px) rotateX(15deg) scale(0.6);
+      transform: translateX(-50%) scale(0.5);
     }
   }
 </style>
