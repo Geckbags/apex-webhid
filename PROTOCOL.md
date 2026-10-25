@@ -1205,7 +1205,8 @@ For contrast, these were open earlier in this work and are now closed:
 | `sender+0xC0` is the keymap layer, 0 or 1 only - the byte that gated `0x20` | §8.19 |
 | `ImportConfigUtil` is a bulk whole-profile writer with no UI of its own | §8.17 |
 | Feature-parity audit: 39 app functions, 24/11/4 | §12 |
-| Trigger `0x26` bytes 0-1 = u16 actuation point, paged | §8.9 |
+| Trigger `0x26` bytes 0-1 = u16 actuation point, paged | §8.21.5 |
+| `0x26`/`0x27`/`0x28` send chains: wrappers, page budgets, continuation slots, producer sets | §8.21.5 |
 | Per-key colour `0x10` prefix = brightness, R, G, B | §8.11 |
 | In-browser verification of the page and modules | §11.4 |
 | `0x2A` keymap records: 3 bytes, third is a HID usage ID | §7 |
@@ -2533,9 +2534,10 @@ unknown byte - is why the write stays gated.
 Both branches use the identical packing: payload[1] is the first entry's
 `keyItem`, then every entry emits `[rec[1], rec[3], rec[2]]` =
 `[type, lValue, hValue]`. LEN is built as `3*count + 2` (§8.15). Wrapper
-`FUN_1400b0b80` sets the stride to `(frameMax-2)/3` and **replaces** the selected
-layer's map with the map it was handed, so every `0x20` send is a whole-layer
-write, not a patch.
+`FUN_1400b0b80` sets the stride to `(frameMax-2)/3` and **replaces** the
+selected layer's staging copy with the map it was handed. The staged map is
+whole-layer only in the import slots - the app's own single-key edit hands a
+one-entry map, so its wire frame patches exactly one key (§8.15.1).
 
 The KeySetForm producer (`FUN_14002f9c0`, type 1) builds one entry and it is the
 "clear this key" record:
@@ -2638,7 +2640,10 @@ keys in the list.
 Wire record: `[keyItem, 0x00, model, quick, quickTrigger u16, resetTrigger u16]`.
 The zero is written as a literal, not copied - the producer `FUN_14004b1d0`
 zeroes the source record's `trigger` field, so `0x27` never carries an actuation
-point. Stride `frameMax / 8` = 16.
+point. The vector's nodes carry a 16-byte stride (the allocator element size in
+the wrapper's deallocate call); the page budget is separate - wrapper
+`FUN_1400b10f0` computes `0x5B = 122 >> 3 = 15` records per frame, so a full
+`0x27` page carries 15 x 8 = 120 record bytes.
 
 **`0x28` - the full record for all keys**
 
@@ -2664,6 +2669,49 @@ prefixed by the first entry's `keyItem` and the page's record count. Source is a
 The packing question in §8.9 and §8.12.3 is therefore **closed**. What remains
 is not static: none of the three has ever been written to a board, and a
 mispacked actuation slot is only recoverable by factory reset.
+
+All three send chains are now verified past the builder:
+
+| opcode | wrapper | expected | staging | per page | continuation |
+|---|---|---|---|---|---|
+| `0x26` | `FUN_1400b1280` | `+0x31 = 0xA6` | 10-byte record at `+0x25E..0x267`, key list at `+0x268/+0x270/+0x278` | `0x5B = 0x7A - 2 = 120` keys | `FUN_14009cae0` |
+| `0x27` | `FUN_1400b10f0` | `+0x31 = 0xA7` | node vector at `+0x280/+0x288/+0x290` | `0x5B = 122 >> 3 = 15` records | `FUN_14009c850` |
+| `0x28` | `FUN_1400b13c0` | `+0x31 = 0xA8` | `QMap` at `+0x200` | `0x5B = 121 >> 3 = 15` records | `FUN_14009cd70` |
+
+The budgets follow the LEN arithmetic: a full `0x26` page is 120 + 2 = `0x7A`
+bytes, a full `0x27` page is 15 x 8 = 120, a full `0x28` page is
+15 x 8 + 2 = `0x7A`. `FUN_1400b1280` copies the record with one `movsd`
+(the first eight bytes) plus one `movzx word` (bytes 8 and 9) - which pins
+record byte 2 to `sender+0x260` and byte 3 to `sender+0x261`, the `trigger` u16
+the builder emits as payload[0..1]. The three continuation slots were read
+instruction-level and are the standard pattern: guard on `*param_2 == +0x31`,
+stop the timer, and while `frame < total` set `+0x5A = frame + 1`,
+`+0x59 = total`, clear the retry byte and rebuild through the builder.
+
+The producers complete the picture:
+
+- **`0x26`** has exactly three callers, all actuation-slider handlers on the
+  trigger form: `0x14004d2f0` (slider + 1), `0x14004d4f0` (slider - 1) and
+  `0x1400557f0` (commit). Each reads `QAbstractSlider::value()` (the + 1
+  variant first clamps its step to the running config's max at
+  `(*DAT_140197068 + 0x10) + 0x42`) and stores the resulting u16 at blob
+  offset 2 (`14004d419: MOV word ptr [RSP + 0x32], AX` - the instruction that
+  proves the slider value *is* the actuation field), drives the 25-step
+  progress bar with `FUN_1400822d0((value - min) * 0x19 / (max - min))` from
+  the `+0x40`/`+0x42` pair, formats the label through `QLocale::toString`
+  (format `'f'`) and builds the key list with `FUN_140081090(form+0x30, ...)`.
+  All three pass arm-flag `0`.
+- **`0x27`** has eight callers, all trigger-form slots: `0x14004b1d0`,
+  `0x14004bb00`, `0x14004be50`, `0x14004c1f0`, `0x14004c6d0`, `0x14004ca20`,
+  `0x14004d6f0`, `0x14004e380`. `0x14004b1d0` is the slot that zeroes the
+  source record's `trigger` field quoted above.
+- **`0x28`** has a single caller, import slot `0x140090770` (§8.22.2 step 10):
+  after the ten `0x40` macro writes (`+0xF9 == 10`) it calls `FUN_1400b13c0`
+  with the `+0xF0` trigger map. Like `0x14`, it never leaves the import chain.
+
+An empty source is refused by each wrapper with its own signal emitter
+(`FUN_14001bca0`, `FUN_14001bb20`, `FUN_14001bd00`) instead of sending an
+empty frame.
 
 #### 8.21.6 `0x53` and `0x54`
 
@@ -3249,9 +3297,9 @@ remembered.
 | `0x23` | `sendSetHighKey` | Gated — paged 19-byte bulk write used only by config import (§8.21.8); no UI, never run |
 | `0x24` | `sendSetKeyboardConfig` | Gated — a different command from `0x20` (§8.15), every byte named (§8.21.4); never run |
 | `0x25` | `sendDelHighKey` | Exposed — driver helper + UI (HighKeyForm delete) |
-| `0x26` | `sendSetTriggerConfig` | Gated — actuation packing decoded (§8.21.5); never run against hardware |
-| `0x27` | `sendSetQuickTriggerConfig` | Gated — quick/reset packing decoded (§8.21.5); never run |
-| `0x28` | `sendSetTriggerConfigAll` | Gated — full-record packing decoded (§8.21.5); never run |
+| `0x26` | `sendSetTriggerConfig` | Gated — slider producer + actuation packing decoded (§8.21.5); never run against hardware |
+| `0x27` | `sendSetQuickTriggerConfig` | Gated — producer set + quick/reset packing decoded (§8.21.5); never run |
+| `0x28` | `sendSetTriggerConfigAll` | Gated — import-only full-record replay, decoded (§8.21.5); never run |
 | `0x2A` | `sendGetKeyboardConfig` | Exposed — driver helper + UI |
 | `0x2B` | `sendGetHighKey` | Exposed — driver helper + UI |
 | `0x2C` | `sendGetTriggerConfig` | Exposed — driver helper + UI |
