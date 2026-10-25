@@ -1657,7 +1657,7 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
 
         case 5: // Flow L->R - RGB rainbow wave moving left to right
           {
-            const hue = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
+            const hue = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1668,7 +1668,7 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
 
         case 6: // Flow R->L - RGB rainbow wave moving right to left
           {
-            const hue = (col / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
+            const hue = (col / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1679,7 +1679,7 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
 
         case 7: // Flow Up->Dn - RGB rainbow wave moving top to bottom
           {
-            const hue = (row / rows * 360 + Number(speed) * 3 + time * 0.5) % 360;
+            const hue = (row / rows * 360 + Number(speed) * 3 + time * 0.2) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1690,7 +1690,7 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
 
         case 8: // Flow Dn->Up - RGB rainbow wave moving bottom to top
           {
-            const hue = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.5) % 360;
+            const hue = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.2) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1859,28 +1859,28 @@ function renderHeroKeyboard(effect, brightness, speed, colour, time) {
           { const bp = (time * 0.3 * (101 - Number(speed))) % 360; const bw = (Math.sin(bp * Math.PI / 180) + 1) / 2; intensity = maxBright * (0.2 + 0.8 * bw); keyR = colourR; keyG = colourG; keyB = colourB; }
           break;
         case 4:
-          { const sp = starBrightness(row, col, Math.floor(Number(speed) / 10) + Math.floor(time / 100)); intensity = maxBright * sp; keyR = colourR; keyG = colourG; keyB = colourB; }
+          { const sp = starBrightness(row, col, Math.floor(Number(speed) / 10) + Math.floor(time / 500)); intensity = maxBright * sp; keyR = colourR; keyG = colourG; keyB = colourB; }
           break;
         case 5:
-          { const h = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          { const h = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
           break;
         case 6:
-          { const h = (col / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          { const h = (col / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
           break;
         case 7:
-          { const h = (row / rows * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          { const h = (row / rows * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
           break;
         case 8:
-          { const h = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.5) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+          { const h = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
           break;
         case 9:
-          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 60 - Number(speed) * 10 + time * 2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
+          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 60 - Number(speed) * 10 + time * 0.2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
           break;
         case 10:
-          { const cr = 2, cc = 6; const dx = Math.abs(col - cc), dy = Math.abs(row - cr); const cd = Math.max(dx, dy); const rp = (cd * 60 - Number(speed) * 10 + time * 2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
+          { const cr = 2, cc = 6; const dx = Math.abs(col - cc), dy = Math.abs(row - cr); const cd = Math.max(dx, dy); const rp = (cd * 60 - Number(speed) * 10 + time * 0.2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
           break;
         case 11:
-          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 45 - Number(speed) * 10 + time * 2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
+          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 45 - Number(speed) * 10 + time * 0.2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
           break;
         default: intensity = 0;
       }
@@ -1902,7 +1902,7 @@ function animateHeroKeyboard() {
   const effect = HERO_EFFECTS[heroEffectIndex];
   const time = (Date.now() - heroAnimStartTime) / 10;
   renderHeroKeyboard(effect, 100, 50, '#ff8a3d', time);
-  if (time > (heroEffectIndex + 1) * 400) {
+  if (time > (heroEffectIndex + 1) * 600) {
     heroEffectIndex = (heroEffectIndex + 1) % HERO_EFFECTS.length;
   }
   heroAnimFrameId = requestAnimationFrame(animateHeroKeyboard);
