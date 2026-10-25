@@ -255,7 +255,6 @@
     <button data-tab="profiles">Profiles &amp; Fn</button>
     <button data-tab="trigger">Hall Effect</button>
     <button data-tab="console">Protocol Console</button>
-    <button data-tab="traffic">Traffic</button>
     <button data-tab="developer">Developer</button>
   </div>
 
@@ -335,6 +334,14 @@
         collection. If the picker lists several entries, choose the one whose collection
         tree contains usage page <code>0xFF02</code>.
       </div>
+    </div>
+    <div class="card">
+      <h2>Traffic log</h2>
+      <div class="row" style="margin-bottom:10px">
+        <button id="btnClearTrace">Clear</button>
+        <span class="note">Newest first. <span class="l-out">→</span> host to device, <span class="l-in">←</span> device to host.</span>
+      </div>
+      <pre id="trace" class="log"></pre>
     </div>
   </section>
 
@@ -867,17 +874,6 @@
     </div>
   </section>
 
-  <!-- TRACE -->
-  <section id="traffic">
-    <div class="card">
-      <h2>Traffic log</h2>
-      <div class="row" style="margin-bottom:10px">
-        <button id="btnClearTrace">Clear</button>
-        <span class="note">Newest first. <span class="l-out">→</span> host to device, <span class="l-in">←</span> device to host.</span>
-      </div>
-      <pre id="trace" class="log"></pre>
-    </div>
-  </section>
 </main>
 
 <script type="module" src="js/app.js"></script>
