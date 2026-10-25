@@ -1516,7 +1516,26 @@ renderOpcodeList();
 
 $('#btnClearTrace').addEventListener('click', () => { $('#trace').innerHTML = ''; });
 
-/* --------------------------------------------------------------------- init */
+/* ---------------------------------------------------------------- alpha warning modal */
+
+const alphaModal = $('#alphaModal');
+const alphaAccepted = localStorage.getItem('apex-alpha-accepted');
+
+if (!alphaAccepted && window.self === window.top) {
+  // Show modal on first visit (not in iframe/test environment)
+  alphaModal.style.display = 'flex';
+} else {
+  alphaModal.style.display = 'none';
+}
+
+$('#btnAlphaAccept').addEventListener('click', () => {
+  localStorage.setItem('apex-alpha-accepted', '1');
+  alphaModal.style.display = 'none';
+});
+
+$('#btnAlphaCancel').addEventListener('click', () => {
+  window.location.href = 'about:blank';
+});
 
 if (!webHidSupported()) {
   $('#nosupport').classList.remove('hidden');
