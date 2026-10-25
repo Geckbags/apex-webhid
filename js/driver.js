@@ -947,7 +947,7 @@ export class ApexHid {
   async setEffectColour({ effect, red, green, blue }) {
     const before = await this.readEffectConfig(effect);
     const readback = before ? Uint8Array.of(0, 0, 0, ...before.opaque) : null;
-    const payload = buildColourConfig({ effect, red, green, blue, readback });
+    const payload = buildColourConfig({ effect, red, green, blue, brightness: before?.brightness, speed: before?.speed, readback });
     const write = await this.request(CMD.SET_EFFECT_LIGHT, payload, {
       allowWrite: true, timeoutMs: 2000,
     });
