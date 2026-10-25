@@ -411,7 +411,10 @@ $('#btnLightReadAll').addEventListener('click', async () => {
   const status = $('#lightStatus');
   try {
     setStatus('reading lighting...', '');
-    const cfg = await hid.readEffectConfig(Number(lMode.value) || 0);
+    // First read the active effect (0xFF sentinel) to get the current effect index
+    const activeCfg = await hid.readEffectConfig(0xff);
+    const effectIndex = activeCfg ? activeCfg.effect : (Number(lMode.value) || 0);
+    const cfg = await hid.readEffectConfig(effectIndex);
     let names = null;
     let custom = null;
     try { names = await hid.readEffectNames(); } catch (err) { /* names are optional */ }
@@ -441,6 +444,8 @@ $('#btnLightReadAll').addEventListener('click', async () => {
     $('#lBrightOut').textContent = String(cfg.brightness);
     $('#lSpeedOut').textContent = String(cfg.speed);
     lEffectColor.value = cfg.colour.hex;
+
+    updateLightingControls();
 
     const name = EFFECT_NAMES[cfg.effect] ?? 'unknown';
     status.textContent =
