@@ -1399,8 +1399,14 @@ $('#btnCalibStateRange').addEventListener('click', async () => {
   const start = Number($('#calibStart').value) || 1;
   const end = Number($('#calibEnd').value) || PRODUCT.keyNumber;
   try {
-    const r = await hid.getCalibrationState(start, end);
-    showOutput('#triggerOut', `0x52 getCalibrationState keys ${start}..${end}\nframe ${r.frame}/${r.total} len ${r.payload.length}\n${hex(r.payload.slice(0, 256))}`);
+    const r = await hid.readCalibrationState(start, end);
+    // readAll returns { pages, frames, total, joined }
+    const pages = r.pages || [];
+    const joined = r.joined || new Uint8Array(0);
+    const numPages = pages.length;
+    let totalLen = 0;
+    for (const p of pages) totalLen += p.length;
+    showOutput('#triggerOut', `0x52 getCalibrationState keys ${start}..${end}\n${numPages} pages, ${totalLen} bytes\n${hex(joined.slice(0, 256))}`);
   } catch (err) { fail(err); showOutput('#triggerOut', String(err.message ?? err)); }
 });
   $('#btnCalibRange').addEventListener('click', async () => {
@@ -1408,7 +1414,13 @@ $('#btnCalibStateRange').addEventListener('click', async () => {
   const end = Number($('#calibEnd').value) || PRODUCT.keyNumber;
   try {
     const r = await hid.readCalibrationAdc(start, end);
-    showOutput('#triggerOut', `0x5B getCalibrationAdc keys ${start}..${end}\nframe ${r.frame}/${r.total} len ${r.payload.length}\n${hex(r.payload.slice(0, 256))}`);
+    // readAll returns { pages, frames, total, joined }
+    const pages = r.pages || [];
+    const joined = r.joined || new Uint8Array(0);
+    const numPages = pages.length;
+    let totalLen = 0;
+    for (const p of pages) totalLen += p.length;
+    showOutput('#triggerOut', `0x5B getCalibrationAdc keys ${start}..${end}\n${numPages} pages, ${totalLen} bytes\n${hex(joined.slice(0, 256))}`);
   } catch (err) { fail(err); showOutput('#triggerOut', String(err.message ?? err)); }
 });
 
