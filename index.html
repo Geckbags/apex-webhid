@@ -161,16 +161,16 @@
     display: flex; align-items: center; justify-content: center;
   }
   .hero-bg-keyboard {
-    position: absolute; bottom: 5%; left: 50%; transform: translateX(-50%);
-    z-index: 1; opacity: .3; pointer-events: none;
-    width: 90vw; max-width: 1200px;
+    position: absolute; bottom: -5%; left: 50%; transform: translateX(-50%);
+    z-index: 1; opacity: .15; pointer-events: none;
+    width: 80vw; max-width: 1000px;
   }
-  .hero-bg-keyboard .row { display: flex; gap: clamp(2px, 0.3vw, 5px); justify-content: center; margin-bottom: clamp(2px, 0.3vw, 5px); }
+  .hero-bg-keyboard .row { display: flex; gap: 3px; justify-content: center; margin-bottom: 3px; }
   .hero-bg-keyboard .key {
-    width: clamp(20px, 3.5vw, 52px); height: clamp(14px, 2.5vw, 38px);
-    border-radius: 4px; font-size: clamp(6px, 0.6vw, 9px);
+    width: clamp(16px, 2.5vw, 40px); height: clamp(12px, 1.8vw, 28px);
+    border-radius: 3px; font-size: clamp(5px, 0.5vw, 7px);
     display: flex; align-items: center; justify-content: center;
-    background: rgba(30, 34, 42, 0.8); border: 1px solid rgba(42, 47, 58, 0.6);
+    background: rgba(30, 34, 42, 0.6); border: 1px solid rgba(42, 47, 58, 0.3);
     color: transparent; transition: background 0.15s ease;
   }
   .hero-content {
