@@ -354,7 +354,7 @@ $('#btnCopyDescriptor').addEventListener('click', () => {
 // so offering it would build a request the firmware rejects with status 07.
 const lMode = $('#lMode');
 for (const [i, name] of EFFECT_NAMES.entries()) {
-  if (name === null || i > EFFECT_MAX) continue;
+  if (name === null || i > EFFECT_MAX || i === 0) continue; // Skip "Close" - use dedicated button instead
   const opt = document.createElement('option');
   opt.value = String(i);
   opt.textContent = `${i} - ${name}`;
@@ -402,6 +402,22 @@ async function refreshEffect() {
 
 $('#btnGetLight').addEventListener('click', refreshEffect);
 
+$('#btnTurnOffBacklight').addEventListener('click', async () => {
+  if (!hid.connected) {
+    showOutput('#lightOut', 'Not connected to keyboard. Press Connect first.');
+    return;
+  }
+  try {
+    const r = await hid.setEffectLightVerified({ effect: 0, brightness: 0, speed: 1 });
+    showOutput('#lightOut',
+      `sent 0x13 Close (effect 0): all keys off\n` +
+      `response frame ${r.write.frame}/${r.write.total} len ${r.write.payload.length}\n` +
+      `${hex(r.write.payload)}\n` +
+      `VERIFIED: ${r.match ? 'yes' : 'NO - device state does not match'}`);
+    if (!r.match) fail(new Error('Close write did not verify'));
+  } catch (err) { fail(err); showOutput('#lightOut', String(err.message ?? err)); }
+});
+
 /**
  * One read pass for the whole lighting page: effect config (0x17), the name
  * table (0x18) and the per-key colour table (0x16). Nothing here writes, so it
@@ -425,7 +441,7 @@ $('#btnLightReadAll').addEventListener('click', async () => {
     if (names && names.length) {
       lMode.innerHTML = '';
       for (const { index, name } of names) {
-        if (index > EFFECT_MAX) continue;
+        if (index > EFFECT_MAX || index === 0) continue; // Skip "Close" - use dedicated button
         const opt = document.createElement('option');
         opt.value = String(index);
         opt.textContent = name === null ? `#${index} (undecoded)` : `${index}. ${name}`;
