@@ -195,6 +195,10 @@ export class ApexHid {
     return this._connected && !!this.device;
   }
 
+  get collections() {
+    return this.device?.collections ?? [];
+  }
+
   #onInput(event) {
     // The vendor collection declares no ReportID items, so event.reportId is 0
     // and the whole 64-byte frame arrives in event.data.
@@ -1001,7 +1005,7 @@ export class ApexHid {
    * This exists so the CLI and a human can do it deliberately, never by accident.
    */
   resetKeyboard() {
-    return this.request(CMD.RESET_KEYBOARD, new Uint8Array(0), { allowForbidden: true });
+    return this.request(CMD.RESET_KEYBOARD, new Uint8Array(0), { allowWrite: true, allowForbidden: true });
   }
 }
 
