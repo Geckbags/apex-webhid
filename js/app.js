@@ -358,6 +358,8 @@ for (const [i, name] of EFFECT_NAMES.entries()) {
   opt.textContent = `${i} - ${name}`;
   lMode.appendChild(opt);
 }
+// Default to Static effect (index 1) for a useful initial preview
+lMode.value = '1';
 
 // Sliders are live-0-100 and 1-100 percentages/interval, not 0-255 levels.
 const lEffectColor = $('#lEffectColor');
