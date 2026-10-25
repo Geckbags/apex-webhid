@@ -1097,6 +1097,83 @@ function syncSocdRow() {
   $('#hSocdRow').style.display = isSocd ? '' : 'none';
   $('#hType').addEventListener('change', syncSocdRow);
 }
+
+
+// Show modifier visual breakdown when modifier changes.
+function updateModifierVisual() {
+  const mod = selectedModifier();
+  const $modBadge = $('#modBadge');
+  const $modData = $('#modData');
+  const $modDecoded = $('#modDecoded');
+  const $modVisual = $('#modifierVisual');
+  
+  // Hide visual by default
+  $modVisual.hide();
+  
+  if (!mod) {
+    return;
+  }
+  
+  const modId = mod.id;
+  const modName = mod.name;
+  const modLabel = mod.label;
+  const dataLen = mod.dataLen;
+  
+  $modBadge.text(modLabel + ' modifier');
+  $modVisual.show();
+  
+  // Show data bytes hex display
+  $modData.text('Data: ' + $('#hData').val() || 'no data');
+  
+  // Show decoded info based on modifier type
+  let decodedText = '';
+  switch (modId) {
+    case 0: // TGL
+      decodedText = '6-byte record: type + 4 data bytes (state, lValue, hValue, padding)';
+      break;
+    case 1: // MT
+      decodedText = '11-byte record: type + 9 data bytes (key1, key2, 16-bit time, 3 padding bytes)';
+      break;
+    case 2: // DKS
+      decodedText = '19-byte record: type + 17 data bytes (key, key1, key2, 3-byte time, padding)';
+      break;
+    case 3: // RS
+      decodedText = '4-byte record: 2 data bytes + padding';
+      break;
+    case 4: // OKS
+      decodedText = '4-byte record: 2 data bytes + padding';
+      break;
+    case 5: // SOCD
+      decodedText = '5-byte record: key1 + key2 + mode byte';
+      break;
+    default:
+      decodedText = dataLen + ' data bytes';
+  }
+  
+  $modDecoded.text(decodedText);
+}
+
+// Update modifier visual when modifier changes
+$('#hType').addEventListener('change', () => {
+  syncSocdRow();
+  updateModifierVisual();
+});
+
+
+async function handleSocdConfirm() {
+  const key1 = $('#hSocdKey1').value;
+  const key2 = $('#hSocdKey2').value;
+  const mode = $('#hSocdConfirmMode').value;
+  const modeNames = ['Last key wins', 'Key1 wins', 'Key2 wins', 'Both pressed, neither triggers'];
+  const modeName = modeNames[parseInt(mode)] || 'Unknown';
+  const behDesc = 'when both keys are pressed, ' + modeName.toLowerCase();
+  showOutput('#highKeyOut',
+    'SOCD configured: key1=' + key1 + ', key2=' + key2 + ', mode=' + modeName);
+  $('#socdSubmenu').hide();
+  $('#socdOutput').text('SOCD: key1=' + key1 + ', key2=' + key2 + ', mode=' + modeName);
+}
+
+$('#btnSocdConfirm').addEventListener('click', handleSocdConfirm);
 syncSocdRow();
 
 function selectedModifier() {
@@ -1330,7 +1407,7 @@ $('#btnCalibStateRange').addEventListener('click', async () => {
   const start = Number($('#calibStart').value) || 1;
   const end = Number($('#calibEnd').value) || PRODUCT.keyNumber;
   try {
-    const r = await hid.getCalibrationAdc(start, end);
+    const r = await hid.readCalibrationAdc(start, end);
     showOutput('#triggerOut', `0x5B getCalibrationAdc keys ${start}..${end}\nframe ${r.frame}/${r.total} len ${r.payload.length}\n${hex(r.payload.slice(0, 256))}`);
   } catch (err) { fail(err); showOutput('#triggerOut', String(err.message ?? err)); }
 });

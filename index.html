@@ -543,6 +543,12 @@
           <select id="hType">
             <option value="TGL">TGL &mdash; Toggle (6 B)</option>
             <option value="MT">MT &mdash; Hold / Click (11 B)</option>
+<!-- Modifier visual breakdown (updates when modifier changes) -->
+        <div id="modifierVisual" style="margin-top:10px; padding:10px; border:1px solid #3a3d44; display:none;">
+          <div id="modBadge" style="font-size:12px; font-weight:bold; margin-bottom:6px;"></div>
+          <div id="modData" style="font-size:12px; line-height:1.4;"></div>
+          <div id="modDecoded" style="margin-top:6px; font-size:11px; color:#88c0d0;"></div>
+        </div>
             <option value="DKS">DKS &mdash; Dynamic Key Stroke (19 B)</option>
             <option value="RS">RS &mdash; Radial Sensing (4 B)</option>
             <option value="OKS">OKS &mdash; Override on Release (4 B)</option>
@@ -557,6 +563,41 @@
             <option value="3">Both pressed, neither triggers</option>
           </select>
         </label>
+
+        <!-- SOCD submenu (hidden by default, shown when SOCD modifier is selected) -->
+        <div id="socdSubmenu" style="margin-top:8px; display:none;">
+          <div style="font-size:12px; color:#aaa; margin-bottom:6px;">
+            SOCD Configuration
+          </div>
+          <div style="margin-bottom:6px;">
+            <span>Key1 (opposing key):</span>
+            <select id="hSocdKey1">
+              <option value="">Select key...</option>
+              <!-- Options populated by JS (0-85) -->
+            </select>
+          </div>
+          <div style="margin-bottom:6px;">
+            <span>Key2 (other opposing key):</span>
+            <select id="hSocdKey2">
+              <option value="">Select key...</option>
+              <!-- Options populated by JS (0-85) -->
+            </select>
+          </div>
+          <div style="margin-bottom:6px;">
+            <span>Behavior mode:</span>
+            <select id="hSocdConfirmMode">
+              <option value="0">Last key wins</option>
+              <option value="1">Key1 wins</option>
+              <option value="2">Key2 wins</option>
+              <option value="3">Both pressed, neither triggers</option>
+            </select>
+          </div>
+          <div style="margin-top:8px; padding-top:8px; border-top:1px solid #3a3d44;">
+            <button id="btnSocdConfirm" style="width:100%;">Confirm SOCD</button>
+          </div>
+          <div id="socdOutput" style="margin-top:6px; font-size:12px; color:#88c0d0;"></div>
+        </div>
+
         <label class="field">Extra data (hex)
           <input type="text" id="hData" value="" spellcheck="false"
                  placeholder="auto-filled to the right length">
