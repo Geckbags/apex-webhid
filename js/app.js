@@ -1719,11 +1719,37 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
 }
 
 // Live-update keyboard preview when controls change
+// Effect-dependent control visibility
+function updateLightingControls() {
+  const effect = Number($('#lMode').value) || 0;
+  const brightField = $('#lBright').closest('.field');
+  const speedField = $('#lSpeed').closest('.field');
+  const colourRow = $('#lEffectColor').closest('.row');
+
+  // Close (0): no controls needed
+  // Static (1), Layer (2), Breath (3): brightness + colour, no speed
+  // Star (4): brightness + colour + speed
+  // Flow (5-8): brightness + speed, no colour (rainbow)
+  // Dot/Cross/Ripple (9-11): brightness + colour + speed
+
+  const showBright = effect !== 0;
+  const showSpeed = [4, 5, 6, 7, 8, 9, 10, 11].includes(effect);
+  const showColour = [1, 2, 3, 4, 9, 10, 11].includes(effect);
+
+  if (brightField) brightField.style.display = showBright ? '' : 'none';
+  if (speedField) speedField.style.display = showSpeed ? '' : 'none';
+  if (colourRow) colourRow.style.display = showColour ? '' : 'none';
+}
+
 $('#lMode').addEventListener('change', () => {
   const effect = $('#lMode').value || 0;
   const colour = $('#lEffectColor').value;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
+  updateLightingControls();
 });
+
+// Initial control visibility
+updateLightingControls();
 $('#lBright').addEventListener('input', () => {
   const effect = $('#lMode').value || 0;
   const colour = $('#lEffectColor').value;
