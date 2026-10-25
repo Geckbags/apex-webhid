@@ -172,7 +172,7 @@ $('#btnRestore').addEventListener('click', async () => {
  */
 $('#btnScanHid').addEventListener('click', async () => {
   try {
-    if (!webHidSupported()) throw new Error('WebHID is unavailable — use Chrome or Edge.');
+    if (!webHidSupported()) throw new Error('WebHID is unavailable — use Chrome, Edge, Brave, or Opera (Chromium-based).');
     const devices = await navigator.hid.getDevices();
     if (!devices.length) {
       showOutput('#deviceInfo',

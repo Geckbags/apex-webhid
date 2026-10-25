@@ -113,7 +113,7 @@ export class ApexHid {
 
   /** Ask Chrome for the keyboard. Requires a user gesture. */
   async connect() {
-    if (!webHidSupported()) throw new Error('WebHID is unavailable — use Chrome or Edge.');
+    if (!webHidSupported()) throw new Error('WebHID is unavailable — use Chrome, Edge, Brave, or Opera (Chromium-based). Ensure the page is served over HTTPS or localhost.');
     const devices = await navigator.hid.requestDevice({ filters: [CONFIG_FILTER] });
     if (!devices.length) {
       throw new Error('No APEX 200 config interface selected — connect it by USB (not the 2.4 GHz dongle) and pick the entry the picker offers.');
