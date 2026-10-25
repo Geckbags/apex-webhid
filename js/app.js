@@ -1512,20 +1512,46 @@ const QWERTY = [
   ['Ctrl', 'Win', 'Alt', ' ', 'Alt', 'Menu', 'Ctrl'],
 ];
 
+// Generate a pseudo-random but deterministic value for star effect
+function starBrightness(row, col, seed) {
+  const x = (row * 17 + col * 31 + seed * 7) % 100;
+  return x < 15 ? 1 : (x < 25 ? 0.3 : 0); // 15% full, 10% dim, 75% off
+}
+
+// HSV to RGB helper for rainbow effects
+function hsvToRgb(h, s, v) {
+  const c = v * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255)
+  };
+}
+
 function renderKeyboard(effect, brightness, speed, colour) {
   const preview = $('#keyboardPreview');
   if (!preview) return;
   let html = '';
   const effectIdx = Number(effect) || 0;
-  const isStatic = effectIdx === 1;
   const colourR = parseInt(colour.slice(1, 3), 16);
   const colourG = parseInt(colour.slice(3, 5), 16);
   const colourB = parseInt(colour.slice(5, 7), 16);
-  const finalR = Math.min(255, Math.max(0, Math.round(colourR * brightness / 100)));
-  const finalG = Math.min(255, Math.max(0, Math.round(colourG * brightness / 100)));
-  const finalB = Math.min(255, Math.max(0, Math.round(colourB * brightness / 100)));
+  const maxBright = Number(brightness) / 100;
 
-  for (let row = 0; row < QWERTY.length; row++) {
+  // Compute grid dimensions for coordinate-based effects
+  const rows = QWERTY.length;
+  const maxCols = Math.max(...QWERTY.map(r => r.length));
+
+  for (let row = 0; row < rows; row++) {
     html += '<div class="row">';
     for (let col = 0; col < QWERTY[row].length; col++) {
       const label = QWERTY[row][col];
@@ -1533,15 +1559,153 @@ function renderKeyboard(effect, brightness, speed, colour) {
         html += '<div class="key empty"></div>';
         continue;
       }
-      let keyBg = '#ffffff';
-      if (isStatic) {
-        keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
-      } else if (effectIdx >= 4 && effectIdx <= 11) {
-        keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
-      } else {
-        keyBg = '#4a4a4a';
+
+      let keyR = 0, keyG = 0, keyB = 0;
+      let intensity = 0;
+
+      switch (effectIdx) {
+        case 0: // Close - all off
+          intensity = 0;
+          break;
+
+        case 1: // Static - solid color at brightness
+          intensity = maxBright;
+          keyR = colourR;
+          keyG = colourG;
+          keyB = colourB;
+          break;
+
+        case 2: // Layer - show layer indicator (static color for layer 1)
+          intensity = maxBright * 0.5;
+          keyR = colourR;
+          keyG = colourG;
+          keyB = colourB;
+          break;
+
+        case 3: // Breath - pulsing: show mid-breath gradient (center brighter)
+          {
+            const centerRow = (rows - 1) / 2;
+            const centerCol = (maxCols - 1) / 2;
+            const dist = Math.sqrt(Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2));
+            const maxDist = Math.sqrt(Math.pow(centerRow, 2) + Math.pow(centerCol, 2));
+            // Breathing: center is brightest, edges dimmer (simulating mid-inhale)
+            intensity = maxBright * (0.3 + 0.7 * (1 - dist / maxDist));
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 4: // Star - random twinkling
+          {
+            const sparkle = starBrightness(row, col, Math.floor(Number(speed) / 10));
+            intensity = maxBright * sparkle;
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 5: // Flow L→R - wave moving left to right
+          {
+            const phase = (col / maxCols * 360 + Number(speed) * 3) % 360;
+            const wave = (Math.sin(phase * Math.PI / 180) + 1) / 2; // 0 to 1
+            intensity = maxBright * (0.1 + 0.9 * wave);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 6: // Flow R→L - wave moving right to left
+          {
+            const phase = ((maxCols - col) / maxCols * 360 + Number(speed) * 3) % 360;
+            const wave = (Math.sin(phase * Math.PI / 180) + 1) / 2;
+            intensity = maxBright * (0.1 + 0.9 * wave);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 7: // Flow Up→Dn - wave moving top to bottom
+          {
+            const phase = (row / rows * 360 + Number(speed) * 3) % 360;
+            const wave = (Math.sin(phase * Math.PI / 180) + 1) / 2;
+            intensity = maxBright * (0.1 + 0.9 * wave);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 8: // Flow Dn→Up - wave moving bottom to top
+          {
+            const phase = ((rows - row) / rows * 360 + Number(speed) * 3) % 360;
+            const wave = (Math.sin(phase * Math.PI / 180) + 1) / 2;
+            intensity = maxBright * (0.1 + 0.9 * wave);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 9: // Dot(Press) - ripple from center key (G/H area)
+          {
+            const centerRow = 2; // Row with G/H
+            const centerCol = 6; // Around G/H keys
+            const dist = Math.sqrt(Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2));
+            const ripplePhase = (dist * 60 - Number(speed) * 10) % 360;
+            const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+            intensity = maxBright * (0.1 + 0.9 * ripple);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 10: // Cross(Press) - cross ripple from center
+          {
+            const centerRow = 2;
+            const centerCol = 6;
+            const dx = Math.abs(col - centerCol);
+            const dy = Math.abs(row - centerRow);
+            const crossDist = Math.max(dx, dy); // Chebyshev distance = cross shape
+            const ripplePhase = (crossDist * 60 - Number(speed) * 10) % 360;
+            const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+            intensity = maxBright * (0.1 + 0.9 * ripple);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        case 11: // Ripple(Press) - circular ripple from center
+          {
+            const centerRow = 2;
+            const centerCol = 6;
+            const dist = Math.sqrt(Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2));
+            const ripplePhase = (dist * 45 - Number(speed) * 10) % 360;
+            const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+            intensity = maxBright * (0.1 + 0.9 * ripple);
+            keyR = colourR;
+            keyG = colourG;
+            keyB = colourB;
+          }
+          break;
+
+        default:
+          intensity = 0;
       }
-      html += `<div class="key" title="${label}" style="background: ${keyBg}; color: ${finalR+finalG+finalB > 300 ? '#000' : '#fff'}">
+
+      // Apply intensity to color
+      const finalR = Math.round(keyR * intensity);
+      const finalG = Math.round(keyG * intensity);
+      const finalB = Math.round(keyB * intensity);
+      const keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
+      const textColor = (finalR + finalG + finalB > 300) ? '#000' : '#fff';
+
+      html += `<div class="key" title="${label} (${EFFECT_NAMES[effectIdx] || 'unknown'})" style="background: ${keyBg}; color: ${textColor}">
         ${label}
       </div>`;
     }
