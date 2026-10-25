@@ -1613,7 +1613,7 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
 
         case 5: // Flow L->R - RGB rainbow wave moving left to right
           {
-            const hue = (col / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
+            const hue = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
@@ -1624,7 +1624,7 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
 
         case 6: // Flow R->L - RGB rainbow wave moving right to left
           {
-            const hue = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
+            const hue = (col / maxCols * 360 + Number(speed) * 3 + time * 0.5) % 360;
             const rgb = hsvToRgb(hue, 1, 1);
             keyR = rgb.r;
             keyG = rgb.g;
