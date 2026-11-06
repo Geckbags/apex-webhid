@@ -342,6 +342,38 @@
       </div>
       <pre id="trace" class="log"></pre>
     </div>
+    <div class="card" style="border:2px solid #ff6b6b;background:#1a0f0f">
+      <h2>⚠️ Unsafe / Advanced Console</h2>
+      <div class="note" style="color:#ffb6b6">
+        <strong>WARNING:</strong> This console sends raw frames. <strong>REFUSED:</strong> Firmware (0x60,0x65,0x66) and unclassified opcodes. <strong>DANGEROUS:</strong> Actuation (0x26-0x28), calibration (0x53,0x54), transport/config (0x56), keymap (0x20,0x24). Only use if you understand the risks. Gated writes not enabled by default.
+      </div>
+    </div>
+    <div class="card">
+      <h2>Send frame</h2>
+      <div class="grid">
+        <label class="field">Opcode (hex) — ⚠️ Many writes are GATED
+          <input type="text" id="cCmd" value="62" size="6">
+        </label>
+        <label class="field">param1 (layer/key)
+          <input type="number" id="cP1" value="0">
+        </label>
+        <label class="field">param2
+          <input type="number" id="cP2" value="0">
+        </label>
+        <label class="field">Payload (hex bytes, comma separated)
+          <input type="text" id="cData" value="">
+        </label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="btnSend" class="primary">Send</button>
+        <span class="note">Response opcode = request + 0x80. Timeout 1 s.</span>
+      </div>
+      <pre id="consoleOut" class="hidden"></pre>
+    </div>
+    <div class="card">
+      <h2>Known opcodes</h2>
+      <pre id="opcodeList"></pre>
+    </div>
   </section>
 
   <!-- LIGHTING -->
@@ -836,41 +868,6 @@
       </div>
     </div>
   </section>
-
-
-    <div class="card" style="border:2px solid #ff6b6b;background:#1a0f0f">
-      <h2>⚠️ Unsafe / Advanced Console</h2>
-      <div class="note" style="color:#ffb6b6">
-        <strong>WARNING:</strong> This console sends raw frames. <strong>REFUSED:</strong> Firmware (0x60,0x65,0x66) and unclassified opcodes. <strong>DANGEROUS:</strong> Actuation (0x26-0x28), calibration (0x53,0x54), transport/config (0x56), keymap (0x20,0x24). Only use if you understand the risks. Gated writes not enabled by default.
-      </div>
-    </div>
-    <div class="card">
-      <h2>Send frame</h2>
-      <div class="grid">
-        <label class="field">Opcode (hex) — ⚠️ Many writes are GATED
-          <input type="text" id="cCmd" value="62" size="6">
-        </label>
-        <label class="field">param1 (layer/key)
-          <input type="number" id="cP1" value="0">
-        </label>
-        <label class="field">param2
-          <input type="number" id="cP2" value="0">
-        </label>
-        <label class="field">Payload (hex bytes, comma separated)
-          <input type="text" id="cData" value="">
-        </label>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button id="btnSend" class="primary">Send</button>
-        <span class="note">Response opcode = request + 0x80. Timeout 1 s.</span>
-      </div>
-      <pre id="consoleOut" class="hidden"></pre>
-    </div>
-    <div class="card">
-      <h2>Known opcodes</h2>
-      <pre id="opcodeList"></pre>
-    </div>
-
 </main>
 
 <script type="module" src="js/app.js"></script>
