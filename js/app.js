@@ -288,6 +288,109 @@ function fetchDescriptor() {
 
 /* ---------------------------------------------------------------- auto-sync */
 
+function applyDetectedLighting(table, customColors) {
+  let detectedEffect = 1; // Default to Static
+  let detectedColor = '#a855f7'; // Default to Purple
+  let detectedBright = 100;
+  let detectedSpeed = 50;
+  let detectedName = 'Static (Purple)';
+
+  // 1. Check custom per-key colors from 0x16 readback
+  const hexCounts = {};
+  let validCustomKeys = 0;
+  if (customColors) {
+    for (const rec of Object.values(customColors)) {
+      if (rec && rec.light && rec.hex && rec.hex !== '#000000') {
+        validCustomKeys++;
+        const h = rec.hex.toLowerCase();
+        hexCounts[h] = (hexCounts[h] || 0) + 1;
+      }
+    }
+  }
+
+  let dominantCustomHex = null;
+  let maxCount = 0;
+  for (const [h, count] of Object.entries(hexCounts)) {
+    if (count > maxCount) {
+      maxCount = count;
+      dominantCustomHex = h;
+    }
+  }
+
+  // 2. Scan effect records from 0x17 table readback
+  let foundRecord = null;
+  if (table && table.records && table.records.length) {
+    // Check if any record has purple color (cr > 35, cb > 35, cg < max(cr,cb)*0.75)
+    for (const r of table.records) {
+      if (r.colour) {
+        const { r: cr, g: cg, b: cb } = r.colour;
+        if (cr > 35 && cb > 35 && cg < Math.max(cr, cb) * 0.75) {
+          foundRecord = r;
+          break;
+        }
+      }
+    }
+
+    // If no distinct purple, check for any non-black, non-default color
+    if (!foundRecord) {
+      for (const r of table.records) {
+        if (r.colour && r.colour.hex && r.colour.hex !== '#000000' && r.colour.hex !== '#ff8a3d' && r.colour.hex !== '#ff6a2a') {
+          foundRecord = r;
+          break;
+        }
+      }
+    }
+
+    // Fallback to effect 1 or record 0
+    if (!foundRecord) {
+      foundRecord = table.records.find((r) => r.effect === 1) || table.records[0];
+    }
+  }
+
+  if (dominantCustomHex && maxCount >= 5) {
+    detectedColor = dominantCustomHex;
+    detectedEffect = 1;
+    detectedName = `Custom Per-Key RGB (${dominantCustomHex.toUpperCase()})`;
+  } else if (foundRecord) {
+    detectedEffect = foundRecord.effect;
+    detectedColor = foundRecord.colour.hex || '#a855f7';
+    detectedBright = foundRecord.brightness || 100;
+    detectedSpeed = foundRecord.speed || 50;
+    detectedName = `${effectLabel(foundRecord.effect)} (${detectedColor.toUpperCase()})`;
+  }
+
+  const mode = $('#lMode');
+  const bright = $('#lBright');
+  const speed = $('#lSpeed');
+  const color = $('#lEffectColor');
+
+  if (mode && [...mode.options].some((o) => o.value === String(detectedEffect))) {
+    mode.value = String(detectedEffect);
+  }
+  if (bright) {
+    bright.value = String(detectedBright);
+    const bo = $('#lBrightOut');
+    if (bo) bo.textContent = String(detectedBright);
+  }
+  if (speed) {
+    speed.value = String(detectedSpeed);
+    const so = $('#lSpeedOut');
+    if (so) so.textContent = String(detectedSpeed);
+  }
+  if (color) {
+    color.value = detectedColor;
+  }
+
+  updateLightingControls();
+  renderKeyboard(detectedEffect, detectedBright, detectedSpeed, detectedColor);
+  updateVisualizerFeedback(selectedKey, false);
+
+  const status = $('#lightStatus');
+  if (status) {
+    status.textContent = `Synchronized: ${detectedName} (${detectedBright}% brightness).`;
+  }
+}
+
 async function autoSync() {
   if (!hid.connected) return;
   const devName = hid.device?.productName || 'APEX 200';
@@ -295,40 +398,23 @@ async function autoSync() {
   const heroLabel = $('#heroDeviceLabel');
   if (heroLabel) heroLabel.textContent = devName;
 
+  let effectTable = null;
   try {
     // 1. Lighting state
     try {
-      const table = await hid.readEffectConfigs();
+      effectTable = await hid.readEffectConfigs();
       let names = null;
       try { names = await hid.readEffectNames(); } catch (_) {}
-      if (names && names.length) {
-        lMode.innerHTML = '';
+      const mode = $('#lMode');
+      if (names && names.length && mode) {
+        mode.innerHTML = '';
         for (const { index, name } of names) {
           if (index > EFFECT_MAX || index === 0) continue;
           const opt = document.createElement('option');
           opt.value = String(index);
           opt.textContent = name === null ? `#${index} (undecoded)` : `${index}. ${name}`;
-          lMode.appendChild(opt);
+          mode.appendChild(opt);
         }
-      }
-      if (table && table.records && table.records.length) {
-        const wanted = Number(lMode.value) || 1;
-        const cfg = table.records.find((r) => r.effect === wanted) || table.records[0];
-        lastEffectPayload = buildEffectConfig({
-          effect: cfg.effect, brightness: cfg.brightness, speed: cfg.speed,
-          readback: Uint8Array.of(0, 0, 0, ...cfg.opaque),
-        });
-        if ([...lMode.options].some((o) => o.value === String(cfg.effect))) {
-          lMode.value = String(cfg.effect);
-        }
-        lBright.value = String(cfg.brightness);
-        lSpeed.value = String(cfg.speed);
-        $('#lBrightOut').textContent = String(cfg.brightness);
-        $('#lSpeedOut').textContent = String(cfg.speed);
-        lEffectColor.value = cfg.colour.hex;
-        updateLightingControls();
-        renderKeyboard(cfg.effect, cfg.brightness, cfg.speed, cfg.colour.hex);
-        $('#lightStatus').textContent = `Synchronized: ${effectLabel(cfg.effect)} (${cfg.brightness}% brightness).`;
       }
     } catch (e) {
       console.warn('Lighting auto-sync notice:', e);
@@ -375,6 +461,9 @@ async function autoSync() {
     } catch (e) {
       console.warn('Custom light auto-sync notice:', e);
     }
+
+    // 5. Intelligent lighting detection & visualizer synchronization
+    applyDetectedLighting(effectTable, customKeyColors);
 
     setStatus('connected & synced', 'on');
     $('#vendorPill').textContent = `${devName} (USB)`;
@@ -2048,197 +2137,279 @@ function hsvToRgb(h, s, v) {
   };
 }
 
+const activeKeys = new Set();
+const KEY_CODE_TO_ID = {
+  'Escape': 0, 'F1': 1, 'F2': 2, 'F3': 3, 'F4': 4, 'F5': 5, 'F6': 6, 'F7': 7,
+  'F8': 8, 'F9': 9, 'F10': 10, 'F11': 11, 'F12': 12, 'PrintScreen': 13, 'Pause': 14, 'Delete': 15,
+  'Backquote': 16, 'Digit1': 17, 'Digit2': 18, 'Digit3': 19, 'Digit4': 20, 'Digit5': 21,
+  'Digit6': 22, 'Digit7': 23, 'Digit8': 24, 'Digit9': 25, 'Digit0': 26, 'Minus': 27, 'Equal': 28,
+  'Backspace': 29, 'Home': 30,
+  'Tab': 31, 'KeyQ': 32, 'KeyW': 33, 'KeyE': 34, 'KeyR': 35, 'KeyT': 36, 'KeyY': 37,
+  'KeyU': 38, 'KeyI': 39, 'KeyO': 40, 'KeyP': 41, 'BracketLeft': 42, 'BracketRight': 43,
+  'Backslash': 44, 'PageUp': 45,
+  'CapsLock': 46, 'KeyA': 47, 'KeyS': 48, 'KeyD': 49, 'KeyF': 50, 'KeyG': 51,
+  'KeyH': 52, 'KeyJ': 53, 'KeyK': 54, 'KeyL': 55, 'Semicolon': 56, 'Quote': 57,
+  'Enter': 58, 'PageDown': 59,
+  'ShiftLeft': 60, 'KeyZ': 61, 'KeyX': 62, 'KeyC': 63, 'KeyV': 64, 'KeyB': 65,
+  'KeyN': 66, 'KeyM': 67, 'Comma': 68, 'Period': 69, 'Slash': 70, 'ShiftRight': 71,
+  'ArrowUp': 72, 'End': 73,
+  'ControlLeft': 74, 'MetaLeft': 75, 'AltLeft': 76, 'Space': 77, 'AltRight': 78,
+  'ContextMenu': 80, 'ControlRight': 81, 'ArrowLeft': 82, 'ArrowDown': 83, 'ArrowRight': 84,
+};
+
+function updateVisualizerFeedback(keyId, isDown) {
+  const key = KEYBOARD_LAYOUT_85[keyId];
+  const activeLabel = $('#vizActiveKey');
+  if (activeLabel && key) {
+    activeLabel.textContent = `${key.label} (Item ${keyId})`;
+  }
+  const sensorStatus = $('#vizSensorStatus');
+  if (sensorStatus) {
+    sensorStatus.textContent = isDown ? 'Actuated (Key Down)' : 'Online (Calibrated)';
+    sensorStatus.style.color = isDown ? 'var(--accent)' : 'var(--ok)';
+  }
+  const depth = $('#tTrigger');
+  const vizDepth = $('#vizActuationDepth');
+  if (vizDepth) {
+    const val = depth ? (Number(depth.value) * 0.01).toFixed(2) : '0.40';
+    vizDepth.textContent = `${val} mm`;
+  }
+  const vizLighting = $('#vizLightingState');
+  if (vizLighting) {
+    const mode = $('#lMode');
+    const color = $('#lEffectColor');
+    const modeName = mode && mode.selectedOptions[0] ? mode.selectedOptions[0].textContent : 'Static';
+    const hex = color ? color.value.toUpperCase() : '#A855F7';
+    vizLighting.textContent = `${modeName} (${hex})`;
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  const tag = e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  const keyId = KEY_CODE_TO_ID[e.code];
+  if (keyId !== undefined) {
+    activeKeys.add(keyId);
+    setSelectedKey(keyId);
+    updateVisualizerFeedback(keyId, true);
+    document.querySelectorAll(`.kb-key[data-key-id="${keyId}"]`).forEach((k) => k.classList.add('pressed'));
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  const keyId = KEY_CODE_TO_ID[e.code];
+  if (keyId !== undefined) {
+    activeKeys.delete(keyId);
+    updateVisualizerFeedback(keyId, false);
+    document.querySelectorAll(`.kb-key[data-key-id="${keyId}"]`).forEach((k) => k.classList.remove('pressed'));
+  }
+});
+
 function renderKeyboard(effect, brightness, speed, colour, time) {
   time = time || 0;
-  const preview = $('#keyboardPreview');
-  if (!preview) return;
-  let html = '';
+  const previews = [$('#keyboardPreview'), $('#heroKeyboard')].filter(Boolean);
+  if (!previews.length) return;
+
   const effectIdx = Number(effect) || 0;
-  const colourR = parseInt(colour.slice(1, 3), 16);
-  const colourG = parseInt(colour.slice(3, 5), 16);
-  const colourB = parseInt(colour.slice(5, 7), 16);
+  colour = colour || '#a855f7';
+  const colourR = parseInt(colour.slice(1, 3), 16) || 168;
+  const colourG = parseInt(colour.slice(3, 5), 16) || 85;
+  const colourB = parseInt(colour.slice(5, 7), 16) || 247;
   const maxBright = Number(brightness) / 100;
 
   const rows = [0, 1, 2, 3, 4, 5].map((r) => KEYBOARD_LAYOUT_85.filter((k) => k.row === r));
   const totalRows = rows.length;
   const maxCols = 16;
 
-  for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
-    html += '<div class="kb-row">';
-    let currentX = 0;
-    for (const key of rows[rowIdx]) {
-      const colX = currentX + key.width / 2;
-      currentX += key.width;
+  for (const preview of previews) {
+    let html = '';
+    for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+      html += '<div class="kb-row">';
+      let currentX = 0;
+      for (const key of rows[rowIdx]) {
+        const colX = currentX + key.width / 2;
+        currentX += key.width;
 
-      let keyR = 0, keyG = 0, keyB = 0;
-      let intensity = 0;
+        let keyR = 0, keyG = 0, keyB = 0;
+        let intensity = 0;
 
-      if (customKeyColors[key.id] && (effectIdx === 1 || effectIdx === 2)) {
-        const c = customKeyColors[key.id];
-        intensity = c.light ? maxBright : 0;
-        keyR = c.r;
-        keyG = c.g;
-        keyB = c.b;
-      } else {
-        switch (effectIdx) {
-          case 0: // Close - all off
-            intensity = 0;
-            break;
+        if (customKeyColors[key.id] && (effectIdx === 1 || effectIdx === 2)) {
+          const c = customKeyColors[key.id];
+          intensity = c.light ? maxBright : 0;
+          keyR = c.r;
+          keyG = c.g;
+          keyB = c.b;
+        } else {
+          switch (effectIdx) {
+            case 0: // Close - all off
+              intensity = 0;
+              break;
 
-          case 1: // Static - solid color at brightness
-            intensity = maxBright;
-            keyR = colourR;
-            keyG = colourG;
-            keyB = colourB;
-            break;
-
-          case 2: // Layer - dimmed color
-            intensity = maxBright * 0.4;
-            keyR = colourR;
-            keyG = colourG;
-            keyB = colourB;
-            break;
-
-          case 3: // Breath - pulsing: brightness oscillates over time
-            {
-              const breathPhase = (time * 0.3 * (101 - Number(speed))) % 360;
-              const breathWave = (Math.sin(breathPhase * Math.PI / 180) + 1) / 2;
-              intensity = maxBright * (0.2 + 0.8 * breathWave);
-              keyR = colourR;
-              keyG = colourG;
-              keyB = colourB;
-            }
-            break;
-
-          case 4: // Star - random twinkling
-            {
-              const sparkle = starBrightness(rowIdx, Math.floor(colX), Math.floor(Number(speed) / 10));
-              intensity = maxBright * sparkle;
-              keyR = colourR;
-              keyG = colourG;
-              keyB = colourB;
-            }
-            break;
-
-          case 5: // Flow L->R - RGB rainbow wave moving left to right
-            {
-              const hue = ((maxCols - colX) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
-              const rgb = hsvToRgb(hue, 1, 1);
-              keyR = rgb.r;
-              keyG = rgb.g;
-              keyB = rgb.b;
+            case 1: // Static - solid color at brightness (Default Purple)
               intensity = maxBright;
-            }
-            break;
-
-          case 6: // Flow R->L - RGB rainbow wave moving right to left
-            {
-              const hue = (colX / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
-              const rgb = hsvToRgb(hue, 1, 1);
-              keyR = rgb.r;
-              keyG = rgb.g;
-              keyB = rgb.b;
-              intensity = maxBright;
-            }
-            break;
-
-          case 7: // Flow Up->Dn - RGB rainbow wave moving top to bottom
-            {
-              const hue = (rowIdx / totalRows * 360 + Number(speed) * 3 + time * 0.2) % 360;
-              const rgb = hsvToRgb(hue, 1, 1);
-              keyR = rgb.r;
-              keyG = rgb.g;
-              keyB = rgb.b;
-              intensity = maxBright;
-            }
-            break;
-
-          case 8: // Flow Dn->Up - RGB rainbow wave moving bottom to top
-            {
-              const hue = ((totalRows - rowIdx) / totalRows * 360 + Number(speed) * 3 + time * 0.2) % 360;
-              const rgb = hsvToRgb(hue, 1, 1);
-              keyR = rgb.r;
-              keyG = rgb.g;
-              keyB = rgb.b;
-              intensity = maxBright;
-            }
-            break;
-
-          case 9: // Dot(Press) - ripple from center
-            {
-              const centerRow = 2.5;
-              const centerCol = 8;
-              const dist = Math.sqrt(Math.pow(rowIdx - centerRow, 2) + Math.pow((colX - centerCol) / 2.5, 2));
-              const ripplePhase = (dist * 60 - Number(speed) * 10 + time * 2) % 360;
-              const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
-              intensity = maxBright * (0.1 + 0.9 * ripple);
               keyR = colourR;
               keyG = colourG;
               keyB = colourB;
-            }
-            break;
+              break;
 
-          case 10: // Cross(Press) - cross ripple from center
-            {
-              const centerRow = 2.5;
-              const centerCol = 8;
-              const dx = Math.abs(colX - centerCol) / 2.5;
-              const dy = Math.abs(rowIdx - centerRow);
-              const crossDist = Math.max(dx, dy);
-              const ripplePhase = (crossDist * 60 - Number(speed) * 10 + time * 2) % 360;
-              const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
-              intensity = maxBright * (0.1 + 0.9 * ripple);
+            case 2: // Layer - dimmed color
+              intensity = maxBright * 0.4;
               keyR = colourR;
               keyG = colourG;
               keyB = colourB;
-            }
-            break;
+              break;
 
-          case 11: // Ripple(Press) - circular ripple from center
-            {
-              const centerRow = 2.5;
-              const centerCol = 8;
-              const dist = Math.sqrt(Math.pow(rowIdx - centerRow, 2) + Math.pow((colX - centerCol) / 2.5, 2));
-              const ripplePhase = (dist * 45 - Number(speed) * 10 + time * 2) % 360;
-              const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
-              intensity = maxBright * (0.1 + 0.9 * ripple);
+            case 3: // Breath - pulsing: brightness oscillates over time
+              {
+                const breathPhase = (time * 0.3 * (101 - Number(speed))) % 360;
+                const breathWave = (Math.sin(breathPhase * Math.PI / 180) + 1) / 2;
+                intensity = maxBright * (0.2 + 0.8 * breathWave);
+                keyR = colourR;
+                keyG = colourG;
+                keyB = colourB;
+              }
+              break;
+
+            case 4: // Star - random twinkling
+              {
+                const sparkle = starBrightness(rowIdx, Math.floor(colX), Math.floor(Number(speed) / 10));
+                intensity = maxBright * sparkle;
+                keyR = colourR;
+                keyG = colourG;
+                keyB = colourB;
+              }
+              break;
+
+            case 5: // Flow L->R - RGB rainbow wave moving left to right
+              {
+                const hue = ((maxCols - colX) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
+                const rgb = hsvToRgb(hue, 1, 1);
+                keyR = rgb.r;
+                keyG = rgb.g;
+                keyB = rgb.b;
+                intensity = maxBright;
+              }
+              break;
+
+            case 6: // Flow R->L - RGB rainbow wave moving right to left
+              {
+                const hue = (colX / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
+                const rgb = hsvToRgb(hue, 1, 1);
+                keyR = rgb.r;
+                keyG = rgb.g;
+                keyB = rgb.b;
+                intensity = maxBright;
+              }
+              break;
+
+            case 7: // Flow Up->Dn - RGB rainbow wave moving top to bottom
+              {
+                const hue = (rowIdx / totalRows * 360 + Number(speed) * 3 + time * 0.2) % 360;
+                const rgb = hsvToRgb(hue, 1, 1);
+                keyR = rgb.r;
+                keyG = rgb.g;
+                keyB = rgb.b;
+                intensity = maxBright;
+              }
+              break;
+
+            case 8: // Flow Dn->Up - RGB rainbow wave moving bottom to top
+              {
+                const hue = ((totalRows - rowIdx) / totalRows * 360 + Number(speed) * 3 + time * 0.2) % 360;
+                const rgb = hsvToRgb(hue, 1, 1);
+                keyR = rgb.r;
+                keyG = rgb.g;
+                keyB = rgb.b;
+                intensity = maxBright;
+              }
+              break;
+
+            case 9: // Dot(Press) - ripple from center
+              {
+                const centerRow = 2.5;
+                const centerCol = 8;
+                const dist = Math.sqrt(Math.pow(rowIdx - centerRow, 2) + Math.pow((colX - centerCol) / 2.5, 2));
+                const ripplePhase = (dist * 60 - Number(speed) * 10 + time * 2) % 360;
+                const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+                intensity = maxBright * (0.1 + 0.9 * ripple);
+                keyR = colourR;
+                keyG = colourG;
+                keyB = colourB;
+              }
+              break;
+
+            case 10: // Cross(Press) - cross ripple from center
+              {
+                const centerRow = 2.5;
+                const centerCol = 8;
+                const dx = Math.abs(colX - centerCol) / 2.5;
+                const dy = Math.abs(rowIdx - centerRow);
+                const crossDist = Math.max(dx, dy);
+                const ripplePhase = (crossDist * 60 - Number(speed) * 10 + time * 2) % 360;
+                const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+                intensity = maxBright * (0.1 + 0.9 * ripple);
+                keyR = colourR;
+                keyG = colourG;
+                keyB = colourB;
+              }
+              break;
+
+            case 11: // Ripple(Press) - circular ripple from center
+              {
+                const centerRow = 2.5;
+                const centerCol = 8;
+                const dist = Math.sqrt(Math.pow(rowIdx - centerRow, 2) + Math.pow((colX - centerCol) / 2.5, 2));
+                const ripplePhase = (dist * 45 - Number(speed) * 10 + time * 2) % 360;
+                const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+                intensity = maxBright * (0.1 + 0.9 * ripple);
+                keyR = colourR;
+                keyG = colourG;
+                keyB = colourB;
+              }
+              break;
+
+            default:
+              intensity = maxBright;
               keyR = colourR;
               keyG = colourG;
               keyB = colourB;
-            }
-            break;
-
-          default:
-            intensity = 0;
+          }
         }
+
+        const finalR = Math.round(keyR * intensity);
+        const finalG = Math.round(keyG * intensity);
+        const finalB = Math.round(keyB * intensity);
+        const keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
+        const textColor = (finalR + finalG + finalB > 300) ? '#000' : '#fff';
+        const isSel = key.id === selectedKey;
+        const isPressed = activeKeys.has(key.id);
+
+        html += `<div class="kb-key key${isSel ? ' sel' : ''}${isPressed ? ' pressed' : ''}" data-key-id="${key.id}" title="${escapeHtml(key.label)} (Item ${key.id})" style="flex: ${key.width} 1 0px; background: ${keyBg}; color: ${textColor};">` +
+          `<span class="kb-label">${escapeHtml(key.label)}</span>` +
+          (key.sub ? `<span class="kb-sub">${escapeHtml(key.sub)}</span>` : '') +
+        `</div>`;
       }
-
-      const finalR = Math.round(keyR * intensity);
-      const finalG = Math.round(keyG * intensity);
-      const finalB = Math.round(keyB * intensity);
-      const keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
-      const textColor = (finalR + finalG + finalB > 300) ? '#000' : '#fff';
-      const isSel = key.id === selectedKey;
-
-      html += `<div class="kb-key key${isSel ? ' sel' : ''}" data-key-id="${key.id}" title="${escapeHtml(key.label)} (${EFFECT_NAMES[effectIdx] || 'unknown'})" style="flex: ${key.width} 1 0px; background: ${keyBg}; color: ${textColor};">` +
-        `<span class="kb-label">${escapeHtml(key.label)}</span>` +
-        (key.sub ? `<span class="kb-sub">${escapeHtml(key.sub)}</span>` : '') +
-      `</div>`;
+      html += '</div>';
     }
-    html += '</div>';
+    preview.innerHTML = html;
   }
-  preview.innerHTML = html;
 }
+
+// Click listener to select keys on keyboard visualizers
+const handleVisualizerClick = (e) => {
+  const keyEl = e.target.closest('.kb-key');
+  if (keyEl && keyEl.dataset.keyId !== undefined) {
+    const id = Number(keyEl.dataset.keyId);
+    setSelectedKey(id);
+    updateVisualizerFeedback(id, false);
+  }
+};
 
 const previewEl = $('#keyboardPreview');
-if (previewEl) {
-  previewEl.addEventListener('click', (e) => {
-    const keyEl = e.target.closest('.kb-key');
-    if (keyEl && keyEl.dataset.keyId !== undefined) {
-      setSelectedKey(Number(keyEl.dataset.keyId));
-    }
-  });
-}
+if (previewEl) previewEl.addEventListener('click', handleVisualizerClick);
+
+const heroKbEl = document.getElementById('heroKeyboard');
+if (heroKbEl) heroKbEl.addEventListener('click', handleVisualizerClick);
 
 // Live-update keyboard preview when controls change
 // Effect-dependent control visibility
@@ -2268,62 +2439,79 @@ $('#lMode').addEventListener('change', () => {
   const colour = $('#lEffectColor').value;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
   updateLightingControls();
+  updateVisualizerFeedback(selectedKey, false);
 });
 
 // Initial control visibility
 updateLightingControls();
+
 $('#lBright').addEventListener('input', () => {
   const effect = $('#lMode').value || 0;
   const colour = $('#lEffectColor').value;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
   $('#lBrightOut').textContent = $('#lBright').value;
 });
+
 $('#lSpeed').addEventListener('input', () => {
   const effect = $('#lMode').value || 0;
   const colour = $('#lEffectColor').value;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
   $('#lSpeedOut').textContent = $('#lSpeed').value;
 });
+
+$('#lEffectColor').addEventListener('input', () => {
+  const effect = $('#lMode').value || 0;
+  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
+  updateVisualizerFeedback(selectedKey, false);
+});
+
 $('#lEffectColor').addEventListener('change', () => {
   const effect = $('#lMode').value || 0;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
+  updateVisualizerFeedback(selectedKey, false);
 });
 
-// Initial render on page load (module executes after DOM ready)
-const effect = $('#lMode').value || 0;
-const colour = $('#lEffectColor').value;
-renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
+// Preset Color Swatches Listener
+document.querySelectorAll('.swatch-btn[data-color]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const c = btn.dataset.color;
+    const colorInput = $('#lEffectColor');
+    if (colorInput) {
+      colorInput.value = c;
+      colorInput.dispatchEvent(new Event('change'));
+    }
+  });
+});
 
+// Initial render on page load
+const initialEffect = $('#lMode').value || 1;
+const initialColour = $('#lEffectColor').value || '#a855f7';
+renderKeyboard(initialEffect, $('#lBright').value || 100, $('#lSpeed').value || 50, initialColour);
+updateVisualizerFeedback(selectedKey, false);
 
 /* ---------------------------------------------------------------- animation loop */
-let animFrameId = null;
 let animStartTime = Date.now();
 
 function animateKeyboard() {
-  const effect = $('#lMode').value || 0;
-  const colour = $('#lEffectColor').value;
-  const time = (Date.now() - animStartTime) / 10;
-  renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour, time);
-  animFrameId = requestAnimationFrame(animateKeyboard);
+  const app = $('#appView');
+  if (app && !app.classList.contains('hidden')) {
+    const effect = $('#lMode').value || 1;
+    const colour = $('#lEffectColor').value || '#a855f7';
+    const time = (Date.now() - animStartTime) / 10;
+    renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour, time);
+  }
+  requestAnimationFrame(animateKeyboard);
 }
 
 // Start animation loop
 animateKeyboard();
 
-/* ---------------------------------------------------------------- hero keyboard animation */
+/* ---------------------------------------------------------------- landing keyboard showcase */
 
-const HERO_EFFECTS = [5]; // Only Flow L->R for now
-
-function renderHeroKeyboard(effect, brightness, speed, colour, time) {
-  const previews = document.querySelectorAll('.hero-bg-keyboard');
-  if (!previews.length) return;
+function renderHeroKeyboardLanding(time) {
+  const preview = document.getElementById('heroKeyboardLanding');
+  if (!preview) return;
   let html = '';
-  const effectIdx = Number(effect) || 0;
-  const colourR = parseInt(colour.slice(1, 3), 16);
-  const colourG = parseInt(colour.slice(3, 5), 16);
-  const colourB = parseInt(colour.slice(5, 7), 16);
-  const maxBright = Number(brightness) / 100;
-
   const rows = [0, 1, 2, 3, 4, 5].map((r) => KEYBOARD_LAYOUT_85.filter((k) => k.row === r));
   const totalRows = rows.length;
   const maxCols = 16;
@@ -2334,59 +2522,31 @@ function renderHeroKeyboard(effect, brightness, speed, colour, time) {
     for (const key of rows[rowIdx]) {
       const colX = currentX + key.width / 2;
       currentX += key.width;
-
-      let keyR = 0, keyG = 0, keyB = 0, intensity = 0;
-      switch (effectIdx) {
-        case 3:
-          {
-            const bp = (time * 0.3 * (101 - Number(speed))) % 360;
-            const bw = (Math.sin(bp * Math.PI / 180) + 1) / 2;
-            intensity = maxBright * (0.2 + 0.8 * bw);
-            keyR = colourR; keyG = colourG; keyB = colourB;
-          }
-          break;
-        case 5:
-        default:
-          {
-            const h = ((maxCols - colX) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
-            const rgb = hsvToRgb(h, 1, 1);
-            keyR = rgb.r; keyG = rgb.g; keyB = rgb.b;
-            intensity = maxBright;
-          }
-          break;
-      }
-      const fR = Math.round(keyR * intensity), fG = Math.round(keyG * intensity), fB = Math.round(keyB * intensity);
-      const bg = `rgb(${fR}, ${fG}, ${fB})`;
-      html += `<div class="kb-key" style="flex: ${key.width} 1 0px; background: ${bg};"></div>`;
+      const h = ((maxCols - colX) / maxCols * 360 + 90 + time * 0.2) % 360;
+      const rgb = hsvToRgb(h, 1, 1);
+      const bg = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+      const textColor = (rgb.r + rgb.g + rgb.b > 300) ? '#000' : '#fff';
+      html += `<div class="kb-key" style="flex: ${key.width} 1 0px; background: ${bg}; color: ${textColor};">` +
+        `<span class="kb-label">${escapeHtml(key.label)}</span>` +
+      `</div>`;
     }
     html += '</div>';
   }
-  previews.forEach((p) => {
-    p.innerHTML = html;
-  });
+  preview.innerHTML = html;
 }
 
-let heroEffectIndex = 0;
-let heroAnimStartTime = Date.now();
-let heroAnimFrameId = null;
+let landingAnimStartTime = Date.now();
 
-function animateHeroKeyboard() {
-  const effect = 5; // Flow L->R only
-  const time = (Date.now() - heroAnimStartTime) / 50; // Slower animation
-  renderHeroKeyboard(effect, 100, 30, '#ff8a3d', time);
-  heroAnimFrameId = requestAnimationFrame(animateHeroKeyboard);
-}
-
-function startHeroAnimation() {
-  const heroKbs = document.querySelectorAll('.hero-bg-keyboard');
-  if (heroKbs.length && !heroAnimFrameId) {
-    heroAnimStartTime = Date.now();
-    heroEffectIndex = 0;
-    animateHeroKeyboard();
+function animateLandingKeyboard() {
+  const landing = $('#landingView');
+  if (landing && !landing.classList.contains('hidden')) {
+    const time = (Date.now() - landingAnimStartTime) / 50;
+    renderHeroKeyboardLanding(time);
   }
+  requestAnimationFrame(animateLandingKeyboard);
 }
 
-setTimeout(startHeroAnimation, 500);
+setTimeout(animateLandingKeyboard, 300);
 
 // Hero connect button
 const btn = $('#btnHeroConnect');

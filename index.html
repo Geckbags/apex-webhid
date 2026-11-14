@@ -193,9 +193,30 @@
   .hero-bg-keyboard .kb-row { display: flex; gap: 4px; margin-bottom: 4px; width: 100%; }
   .hero-bg-keyboard .kb-key {
     height: 38px; border-radius: 5px; font-size: 11px; font-weight: 600;
-    display: flex; align-items: center; justify-content: center;
-    border: 1px solid rgba(255, 255, 255, 0.08); transition: background 0.15s ease;
-    min-width: 0; box-shadow: 0 2px 0 #080a0f; color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.08); transition: background 0.12s ease, transform 0.08s ease;
+    min-width: 0; box-shadow: 0 2px 0 #080a0f; color: #fff; cursor: pointer; user-select: none;
+  }
+  .hero-bg-keyboard .kb-key:hover {
+    border-color: var(--accent); transform: translateY(-1px);
+    box-shadow: 0 3px 0 #080a0f, 0 0 12px rgba(255, 106, 42, 0.35); z-index: 2;
+  }
+  .hero-bg-keyboard .kb-key .kb-sub { font-size: 8px; opacity: 0.65; line-height: 1; margin-top: 1px; font-weight: 400; }
+  .kb-key.pressed {
+    background: #ff6a2a !important;
+    color: #160d04 !important;
+    border-color: #ff9d66 !important;
+    font-weight: 700;
+    box-shadow: 0 0 18px rgba(255, 106, 42, 0.95), inset 0 2px 4px rgba(0,0,0,0.4) !important;
+    transform: translateY(2px) scale(0.96) !important;
+    z-index: 10;
+  }
+  .swatch-btn {
+    width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line-light);
+    cursor: pointer; padding: 0; transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .swatch-btn:hover {
+    transform: scale(1.15); box-shadow: 0 0 8px currentColor;
   }
 
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
@@ -698,6 +719,12 @@
       <div class="hero-bg-keyboard" id="heroKeyboard">
         <!-- Keyboard rendered by JavaScript -->
       </div>
+      <div id="visualizerFeedback" class="row" style="margin-top:12px; font-size:12px; justify-content:space-between; color:var(--muted); background:var(--panel2); padding:10px 14px; border-radius:8px; border:1px solid var(--line); flex-wrap:wrap; gap:8px;">
+        <div><strong style="color:#fff;">Active Key:</strong> <span id="vizActiveKey" style="color:var(--accent); font-weight:700;">None</span></div>
+        <div><strong style="color:#fff;">Hardware Lighting:</strong> <span id="vizLightingState" style="color:#c084fc; font-weight:600;">Static (#A855F7 Purple)</span></div>
+        <div><strong style="color:#fff;">Actuation Travel:</strong> <span id="vizActuationDepth" style="color:#38bdf8; font-weight:600;">0.8 mm</span></div>
+        <div><strong style="color:#fff;">Sensor State:</strong> <span id="vizSensorStatus" style="color:var(--ok); font-weight:600;">Online (Calibrated)</span></div>
+      </div>
     </div>
 
     <!-- Disconnected State -->
@@ -789,11 +816,20 @@
           </label>
         </div>
 
-        <div class="row" style="margin-top:16px; gap:12px; align-items:center;">
+        <div class="row" style="margin-top:16px; gap:12px; align-items:center; flex-wrap:wrap;">
           <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
             <span>Color:</span>
-            <input type="color" id="lEffectColor" value="#ff8a3d">
+            <input type="color" id="lEffectColor" value="#a855f7">
           </label>
+          <div class="color-palette" style="display:flex; gap:6px; align-items:center;">
+            <button type="button" class="swatch-btn" data-color="#a855f7" style="background:#a855f7;" title="Purple"></button>
+            <button type="button" class="swatch-btn" data-color="#7c3aed" style="background:#7c3aed;" title="Deep Violet"></button>
+            <button type="button" class="swatch-btn" data-color="#d946ef" style="background:#d946ef;" title="Magenta"></button>
+            <button type="button" class="swatch-btn" data-color="#38bdf8" style="background:#38bdf8;" title="Sky Blue"></button>
+            <button type="button" class="swatch-btn" data-color="#ff6a2a" style="background:#ff6a2a;" title="Apex Orange"></button>
+            <button type="button" class="swatch-btn" data-color="#10b981" style="background:#10b981;" title="Emerald"></button>
+            <button type="button" class="swatch-btn" data-color="#ffffff" style="background:#ffffff;" title="White"></button>
+          </div>
           <button id="btnApplyLighting" class="primary" style="padding:9px 20px; font-weight:700;">Save &amp; Apply Lighting</button>
           <button id="btnTurnOffBacklight" class="danger">Turn off lights</button>
         </div>
