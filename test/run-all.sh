@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 BROWSER="${BROWSER:-}"
 if [ -z "$BROWSER" ]; then
   for c in brave google-chrome chromium chromium-browser chrome; do
-    if command -v "$c" >/dev/null 2>&1; then BROWSER="$(command -v "$c")"; break; fi
+    if command -v "$c" >/dev/null 2>&1 && "$c" --version >/dev/null 2>&1; then BROWSER="$(command -v "$c")"; break; fi
   done
 fi
 

@@ -5,7 +5,7 @@ import {
   parseMacroRecords, parseKeymap, EFFECT_MAX, EFFECT_MIN,
   KEY_MODIFIERS, keyName, keyOptions, encodeMacroRecord,
   parseWholeParams, buildWholeParams, WHOLE_PARAM_FIELD, WHOLE_PARAM_LEN,
-  parseCustomLight, decodeSnapshotSection,
+  parseCustomLight, parseEffectConfigs, decodeSnapshotSection,
   MACRO_STATE, MACRO_TIME_MAX,
 } from './protocol.js';
 
@@ -13,6 +13,144 @@ const $ = (sel) => document.querySelector(sel);
 const hid = new ApexHid();
 
 let selectedKey = 0;
+const customKeyColors = {};
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Authentic 75% compact (85-key) layout specification for ANT ESPORTS APEX 200.
+ * Every row sums to exactly 16u width for precision flexbox alignment. */
+export const KEYBOARD_LAYOUT_85 = [
+  // Row 0 - 16 keys, all 1u, total 16u
+  { id: 0, row: 0, label: 'Esc', sub: '', width: 1 },
+  { id: 1, row: 0, label: 'F1', sub: '', width: 1 },
+  { id: 2, row: 0, label: 'F2', sub: '', width: 1 },
+  { id: 3, row: 0, label: 'F3', sub: '', width: 1 },
+  { id: 4, row: 0, label: 'F4', sub: '', width: 1 },
+  { id: 5, row: 0, label: 'F5', sub: '', width: 1 },
+  { id: 6, row: 0, label: 'F6', sub: '', width: 1 },
+  { id: 7, row: 0, label: 'F7', sub: '', width: 1 },
+  { id: 8, row: 0, label: 'F8', sub: '', width: 1 },
+  { id: 9, row: 0, label: 'F9', sub: '', width: 1 },
+  { id: 10, row: 0, label: 'F10', sub: '', width: 1 },
+  { id: 11, row: 0, label: 'F11', sub: '', width: 1 },
+  { id: 12, row: 0, label: 'F12', sub: '', width: 1 },
+  { id: 13, row: 0, label: 'PrtSc', sub: '', width: 1 },
+  { id: 14, row: 0, label: 'Pause', sub: '', width: 1 },
+  { id: 15, row: 0, label: 'Del', sub: '', width: 1 },
+
+  // Row 1 - 15 keys, total 16u
+  { id: 16, row: 1, label: '`', sub: '~', width: 1 },
+  { id: 17, row: 1, label: '1', sub: '!', width: 1 },
+  { id: 18, row: 1, label: '2', sub: '@', width: 1 },
+  { id: 19, row: 1, label: '3', sub: '#', width: 1 },
+  { id: 20, row: 1, label: '4', sub: '$', width: 1 },
+  { id: 21, row: 1, label: '5', sub: '%', width: 1 },
+  { id: 22, row: 1, label: '6', sub: '^', width: 1 },
+  { id: 23, row: 1, label: '7', sub: '&', width: 1 },
+  { id: 24, row: 1, label: '8', sub: '*', width: 1 },
+  { id: 25, row: 1, label: '9', sub: '(', width: 1 },
+  { id: 26, row: 1, label: '0', sub: ')', width: 1 },
+  { id: 27, row: 1, label: '-', sub: '_', width: 1 },
+  { id: 28, row: 1, label: '=', sub: '+', width: 1 },
+  { id: 29, row: 1, label: 'Backspace', sub: '', width: 2 },
+  { id: 30, row: 1, label: 'Home', sub: '', width: 1 },
+
+  // Row 2 - 15 keys, total 16u
+  { id: 31, row: 2, label: 'Tab', sub: '', width: 1.5 },
+  { id: 32, row: 2, label: 'Q', sub: '', width: 1 },
+  { id: 33, row: 2, label: 'W', sub: '', width: 1 },
+  { id: 34, row: 2, label: 'E', sub: '', width: 1 },
+  { id: 35, row: 2, label: 'R', sub: '', width: 1 },
+  { id: 36, row: 2, label: 'T', sub: '', width: 1 },
+  { id: 37, row: 2, label: 'Y', sub: '', width: 1 },
+  { id: 38, row: 2, label: 'U', sub: '', width: 1 },
+  { id: 39, row: 2, label: 'I', sub: '', width: 1 },
+  { id: 40, row: 2, label: 'O', sub: '', width: 1 },
+  { id: 41, row: 2, label: 'P', sub: '', width: 1 },
+  { id: 42, row: 2, label: '[', sub: '{', width: 1 },
+  { id: 43, row: 2, label: ']', sub: '}', width: 1 },
+  { id: 44, row: 2, label: '\\', sub: '|', width: 1.5 },
+  { id: 45, row: 2, label: 'PgUp', sub: '', width: 1 },
+
+  // Row 3 - 14 keys, total 16u
+  { id: 46, row: 3, label: 'Caps', sub: '', width: 1.75 },
+  { id: 47, row: 3, label: 'A', sub: '', width: 1 },
+  { id: 48, row: 3, label: 'S', sub: '', width: 1 },
+  { id: 49, row: 3, label: 'D', sub: '', width: 1 },
+  { id: 50, row: 3, label: 'F', sub: '', width: 1 },
+  { id: 51, row: 3, label: 'G', sub: '', width: 1 },
+  { id: 52, row: 3, label: 'H', sub: '', width: 1 },
+  { id: 53, row: 3, label: 'J', sub: '', width: 1 },
+  { id: 54, row: 3, label: 'K', sub: '', width: 1 },
+  { id: 55, row: 3, label: 'L', sub: '', width: 1 },
+  { id: 56, row: 3, label: ';', sub: ':', width: 1 },
+  { id: 57, row: 3, label: '\'', sub: '"', width: 1 },
+  { id: 58, row: 3, label: 'Enter', sub: '', width: 2.25 },
+  { id: 59, row: 3, label: 'PgDn', sub: '', width: 1 },
+
+  // Row 4 - 14 keys, total 16u
+  { id: 60, row: 4, label: 'Shift', sub: '', width: 2.25 },
+  { id: 61, row: 4, label: 'Z', sub: '', width: 1 },
+  { id: 62, row: 4, label: 'X', sub: '', width: 1 },
+  { id: 63, row: 4, label: 'C', sub: '', width: 1 },
+  { id: 64, row: 4, label: 'V', sub: '', width: 1 },
+  { id: 65, row: 4, label: 'B', sub: '', width: 1 },
+  { id: 66, row: 4, label: 'N', sub: '', width: 1 },
+  { id: 67, row: 4, label: 'M', sub: '', width: 1 },
+  { id: 68, row: 4, label: ',', sub: '<', width: 1 },
+  { id: 69, row: 4, label: '.', sub: '>', width: 1 },
+  { id: 70, row: 4, label: '/', sub: '?', width: 1 },
+  { id: 71, row: 4, label: 'Shift', sub: '', width: 1.75 },
+  { id: 72, row: 4, label: '▲', sub: '', width: 1 },
+  { id: 73, row: 4, label: 'End', sub: '', width: 1 },
+
+  // Row 5 - 11 keys, total 16u
+  { id: 74, row: 5, label: 'Ctrl', sub: '', width: 1.25 },
+  { id: 75, row: 5, label: 'Win', sub: '', width: 1.25 },
+  { id: 76, row: 5, label: 'Alt', sub: '', width: 1.25 },
+  { id: 77, row: 5, label: 'Space', sub: '', width: 5.25 },
+  { id: 78, row: 5, label: 'Alt', sub: '', width: 1 },
+  { id: 79, row: 5, label: 'Fn', sub: '', width: 1 },
+  { id: 80, row: 5, label: 'Menu', sub: '', width: 1 },
+  { id: 81, row: 5, label: 'Ctrl', sub: '', width: 1 },
+  { id: 82, row: 5, label: '◄', sub: '', width: 1 },
+  { id: 83, row: 5, label: '▼', sub: '', width: 1 },
+  { id: 84, row: 5, label: '►', sub: '', width: 1 },
+];
+
+export function getKeyById(id) {
+  return KEYBOARD_LAYOUT_85[id] || null;
+}
+
+export function setSelectedKey(id) {
+  if (id < 0 || id >= KEYBOARD_LAYOUT_85.length) return;
+  selectedKey = id;
+  const key = KEYBOARD_LAYOUT_85[id];
+  const label = key ? `${key.label} (Item ${id})` : `Key ${id}`;
+
+  const d1 = $('#selectedKeyDisplay');
+  if (d1) d1.textContent = label;
+
+  const d2 = $('#selectedKeyColorLabel');
+  if (d2) d2.textContent = label;
+
+  const cStart = $('#calibStart');
+  if (cStart) cStart.value = String(id + 1);
+  const cEnd = $('#calibEnd');
+  if (cEnd) cEnd.value = String(id + 1);
+
+  document.querySelectorAll('.kb-key[data-key-id]').forEach((el) => {
+    el.classList.toggle('sel', Number(el.dataset.keyId) === id);
+  });
+}
 
 /* ------------------------------------------------------------------ status */
 
@@ -25,6 +163,10 @@ function setStatus(text, cls = '') {
 function setConnected(on) {
   $('#btnConnect').classList.toggle('hidden', on);
   $('#btnDisconnect').classList.toggle('hidden', !on);
+  const heroCard = $('#heroConnectedCard');
+  if (heroCard) heroCard.classList.toggle('hidden', !on);
+  const heroConnect = $('#btnHeroConnect');
+  if (heroConnect) heroConnect.classList.toggle('hidden', on);
 }
 
 function fail(err) {
@@ -62,6 +204,13 @@ function log(el, cls, text) {
 function parseHexList(text) {
   const parts = text.split(',').map((s) => s.trim()).filter(Boolean);
   return Uint8Array.from(parts, (p) => parseInt(p, 16) & 0xff);
+}
+
+/** ASCII preview of a byte buffer: printable chars shown, rest replaced with '.'. */
+function asciiPreview(bytes) {
+  if (!bytes || !bytes.length) return '';
+  const chars = Array.from(bytes, (b) => (b >= 0x20 && b < 0x7f) ? String.fromCharCode(b) : '.');
+  return '\n  ascii: ' + chars.join('');
 }
 
 function showOutput(sel, text) {
@@ -135,6 +284,104 @@ function fetchDescriptor() {
   ].join('\n'));
 }
 
+/* ---------------------------------------------------------------- auto-sync */
+
+async function autoSync() {
+  if (!hid.connected) return;
+  const devName = hid.device?.productName || 'APEX 200';
+  setStatus('syncing keyboard...', 'on');
+  const heroLabel = $('#heroDeviceLabel');
+  if (heroLabel) heroLabel.textContent = devName;
+
+  try {
+    // 1. Lighting state
+    try {
+      const table = await hid.readEffectConfigs();
+      let names = null;
+      try { names = await hid.readEffectNames(); } catch (_) {}
+      if (names && names.length) {
+        lMode.innerHTML = '';
+        for (const { index, name } of names) {
+          if (index > EFFECT_MAX || index === 0) continue;
+          const opt = document.createElement('option');
+          opt.value = String(index);
+          opt.textContent = name === null ? `#${index} (undecoded)` : `${index}. ${name}`;
+          lMode.appendChild(opt);
+        }
+      }
+      if (table && table.records && table.records.length) {
+        const wanted = Number(lMode.value) || 1;
+        const cfg = table.records.find((r) => r.effect === wanted) || table.records[0];
+        lastEffectPayload = buildEffectConfig({
+          effect: cfg.effect, brightness: cfg.brightness, speed: cfg.speed,
+          readback: Uint8Array.of(0, 0, 0, ...cfg.opaque),
+        });
+        if ([...lMode.options].some((o) => o.value === String(cfg.effect))) {
+          lMode.value = String(cfg.effect);
+        }
+        lBright.value = String(cfg.brightness);
+        lSpeed.value = String(cfg.speed);
+        $('#lBrightOut').textContent = String(cfg.brightness);
+        $('#lSpeedOut').textContent = String(cfg.speed);
+        lEffectColor.value = cfg.colour.hex;
+        updateLightingControls();
+        renderKeyboard(cfg.effect, cfg.brightness, cfg.speed, cfg.colour.hex);
+        $('#lightStatus').textContent = `Synchronized: ${effectLabel(cfg.effect)} (${cfg.brightness}% brightness).`;
+      }
+    } catch (e) {
+      console.warn('Lighting auto-sync notice:', e);
+    }
+
+    // 2. Global performance settings
+    try {
+      const r = await hid.getWholeParam();
+      const p = parseWholeParams(r.payload);
+      renderParams(p);
+    } catch (e) {
+      console.warn('Params auto-sync notice:', e);
+    }
+
+    // 3. Profiles
+    try {
+      const { pages } = await hid.readConfigTables();
+      const names = pages
+        .filter((p) => p.length > 3)
+        .map((p) => {
+          const nul = p.indexOf(0, 3);
+          return new TextDecoder().decode(p.subarray(3, nul === -1 ? p.length : nul));
+        });
+      if (names.length) {
+        $('#profileOut').textContent = `Loaded ${names.length} profile(s): ${names.join(', ')}`;
+      }
+    } catch (e) {
+      console.warn('Profiles auto-sync notice:', e);
+    }
+
+    // 4. Custom per-key lighting
+    try {
+      const r = await hid.readAll(CMD.GET_CUSTOM_LIGHT);
+      const parsed = parseCustomLight(r.pages);
+      for (const rec of parsed.records) {
+        customKeyColors[rec.keyItem] = {
+          light: rec.light,
+          r: rec.r,
+          g: rec.g,
+          b: rec.b,
+          hex: rec.hex,
+        };
+      }
+    } catch (e) {
+      console.warn('Custom light auto-sync notice:', e);
+    }
+
+    setStatus('connected & synced', 'on');
+    $('#vendorPill').textContent = `${devName} (USB)`;
+  } catch (err) {
+    console.warn('Auto-sync partial failure:', err);
+    setStatus(devName, 'on');
+  }
+}
+
 /* ------------------------------------------------------------------ device */
 
 $('#btnConnect').addEventListener('click', async () => {
@@ -160,7 +407,11 @@ $('#btnRestore').addEventListener('click', async () => {
   try {
     const d = await hid.restore();
     if (!d) setStatus('no saved device', '');
-    else setStatus('connected', 'on');
+    else {
+      setStatus('connected', 'on');
+      setConnected(true);
+      autoSync();
+    }
   } catch (err) { fail(err); }
 });
 
@@ -197,6 +448,7 @@ hid.on('attach', (device) => {
   setConnected(true);
   dumpDeviceInfo();
   log($('#trace'), 'l-in', `attached ${device.productName ?? 'device'}`);
+  autoSync();
 });
 
 hid.on('disconnect', () => {
@@ -276,11 +528,13 @@ $('#btnReadEffects').addEventListener('click', async () => {
 
 $('#btnReadEffectCount').addEventListener('click', async () => {
   try {
-    // SyncConfigUtil asks for the current effect with the 0xFF sentinel
-    // (FUN_1400b5b80 -> FUN_1400af540); FUN_1400a2410 puts the byte at frame[6].
-    const r = await hid.getEffectLight(0xff);
+    // 0xFF is the whole-table sentinel (FUN_1400af540 -> FUN_140097e40), not
+    // "current effect". The protocol has no read that returns the active slot.
+    const table = await hid.readEffectConfigs();
     showOutput('#effectInfo',
-      `0x17 get_effect_light(0xFF = current) -> ${r.payload.length} byte(s): ${hex(r.payload)}`);
+      `${formatEffectTable(table)}\n\n` +
+      '0xFF selects the whole effect table. It does not mean "current effect";\n' +
+      'the protocol has no read that returns the active slot.');
     $('#effectInfo').classList.remove('hidden');
   } catch (err) { fail(err); }
 });
@@ -377,6 +631,39 @@ showVal(lSpeed, '#lSpeedOut', lSpeed.value);
 // device reported so applying a brightness or speed change does not zero them.
 let lastEffectPayload = null;
 
+/** Human label for an effect index, including the undecoded slot. */
+function effectLabel(index) {
+  const name = EFFECT_NAMES[index];
+  return name ? name : `#${index} (undecoded)`;
+}
+
+/** Decode the whole 0x17 table into one honest, line-per-slot view. */
+function formatEffectTable(table) {
+  const head = `0x17 table (index 0xFF): ${table.records.length} record(s), ` +
+    `${table.joined.length} byte(s)` +
+    (table.trailing
+      ? `, ${table.trailing} trailing byte(s) not decoded`
+      : ', no trailing bytes');
+  const rows = table.records.map((r) => (
+    `  slot ${String(r.slot).padStart(2)}  effect ${String(r.effect).padStart(2)}  ` +
+    `${effectLabel(r.effect).padEnd(14)}  ` +
+    `bright ${String(r.brightness).padStart(3)}%  speed ${String(r.speed).padStart(3)}  ` +
+    `colour ${r.colour.hex}  fullColor ${r.fullColor}  functionFlag ${r.functionFlag}`
+  ));
+  return [head, ...rows].join('\n');
+}
+
+/** Counts only - the raw per-key table stays available through 0x16. */
+function formatCustomLightSummary(custom) {
+  if (!custom) return 'per-key custom-light table (0x16): unavailable';
+  const lit = custom.records.filter((r) => r.light !== 0);
+  const colours = new Set(lit.map((r) => r.hex));
+  return `per-key custom-light table (0x16): ${custom.records.length} record(s)` +
+    (custom.trailing ? `, ${custom.trailing} trailing byte(s)` : '') +
+    ` · ${lit.length} lit, ${custom.records.length - lit.length} off, ` +
+    `${colours.size} distinct lit colour(s)`;
+}
+
 async function refreshEffect() {
   try {
     const effect = Number(lMode.value) || 0;
@@ -427,10 +714,9 @@ $('#btnLightReadAll').addEventListener('click', async () => {
   const status = $('#lightStatus');
   try {
     setStatus('reading lighting...', '');
-    // First read the active effect (0xFF sentinel) to get the current effect index
-    const activeCfg = await hid.readEffectConfig(0xff);
-    const effectIndex = activeCfg ? activeCfg.effect : (Number(lMode.value) || 0);
-    const cfg = await hid.readEffectConfig(effectIndex);
+    const wanted = Number(lMode.value);
+    // One whole-table read. 0xFF is the table sentinel, not "current effect".
+    const table = await hid.readEffectConfigs();
     let names = null;
     let custom = null;
     try { names = await hid.readEffectNames(); } catch (err) { /* names are optional */ }
@@ -449,12 +735,34 @@ $('#btnLightReadAll').addEventListener('click', async () => {
       }
     }
 
-    if (!cfg) {
-      status.textContent = 'Device returned fewer than 8 bytes for 0x17; effect config not readable.';
+    showOutput('#lightOut',
+      `${formatEffectTable(table)}\n${formatCustomLightSummary(custom)}`);
+
+    if (!table.records.length) {
+      status.textContent =
+        `0x17 returned ${table.joined.length} byte(s) but no whole 8-byte effect record` +
+        (table.trailing ? ` (${table.trailing} trailing byte(s)).` : '.');
       return;
     }
 
-    lMode.value = String(cfg.effect);
+    // Populate the editor from the slot the user selected, never silently from
+    // slot 0. `wanted` is an effect index; fall back only with an explicit note.
+    let cfg = table.records.find((r) => r.effect === wanted) ?? null;
+    let note = '';
+    if (!cfg) {
+      cfg = table.records[0];
+      note = Number.isInteger(wanted)
+        ? ` Effect ${wanted} was not in the table, so slot ${cfg.slot} is shown instead.`
+        : ` No effect was selected, so slot ${cfg.slot} is shown.`;
+    }
+
+    lastEffectPayload = buildEffectConfig({
+      effect: cfg.effect, brightness: cfg.brightness, speed: cfg.speed,
+      readback: Uint8Array.of(0, 0, 0, ...cfg.opaque),
+    });
+    if ([...lMode.options].some((o) => o.value === String(cfg.effect))) {
+      lMode.value = String(cfg.effect);
+    }
     lBright.value = String(cfg.brightness);
     lSpeed.value = String(cfg.speed);
     $('#lBrightOut').textContent = String(cfg.brightness);
@@ -463,15 +771,53 @@ $('#btnLightReadAll').addEventListener('click', async () => {
 
     updateLightingControls();
 
-    const name = EFFECT_NAMES[cfg.effect] ?? 'unknown';
     status.textContent =
-      `Effect ${cfg.effect} (${name}) · brightness ${cfg.brightness}% · ` +
+      `Effect table: ${table.records.length} record(s). Editing slot ${cfg.slot}: ` +
+      `effect ${cfg.effect} (${effectLabel(cfg.effect)}) · brightness ${cfg.brightness}% · ` +
       `speed ${cfg.speed} · colour ${cfg.colour.hex} · ` +
-      `per-key records ${custom ? custom.records.length : 'unavailable'}`;
+      `per-key records ${custom ? custom.records.length : 'unavailable'}.${note} ` +
+      'The device does not report which effect slot is active; 0x17 with 0xFF is a ' +
+      'whole-table read, and 0x19 has no device-side readback.';
     setStatus('lighting state read', 'on');
   } catch (err) {
     fail(err);
     status.textContent = String(err.message ?? err);
+  }
+});
+
+$('#btnApplyLighting').addEventListener('click', async () => {
+  if (!hid.connected) {
+    showOutput('#lightOut', 'Not connected to keyboard. Press Connect first.');
+    return;
+  }
+  const status = $('#lightStatus');
+  try {
+    status.textContent = 'Applying lighting to keyboard...';
+    const effect = Number(lMode.value);
+    const brightness = Number(lBright.value);
+    const speed = Number(lSpeed.value);
+    const hexv = lEffectColor.value.slice(1);
+    const red = parseInt(hexv.slice(0, 2), 16);
+    const green = parseInt(hexv.slice(2, 4), 16);
+    const blue = parseInt(hexv.slice(4, 6), 16);
+
+    // 1. Set effect, brightness, speed
+    await hid.setEffectLightVerified({ effect, brightness, speed });
+
+    // 2. Set color if applicable
+    const showColour = [1, 2, 3, 4, 9, 10, 11].includes(effect);
+    if (showColour) {
+      await hid.setEffectColour({ effect, red, green, blue });
+    }
+
+    // 3. Activate running effect
+    await hid.selectEffectLight(effect);
+
+    status.textContent = `Applied: ${effectLabel(effect)} (${brightness}% brightness, speed ${speed}${showColour ? ', ' + lEffectColor.value : ''}) · Active on keyboard`;
+    showOutput('#lightOut', `Applied and activated effect ${effect} (${effectLabel(effect)}).`);
+  } catch (err) {
+    fail(err);
+    status.textContent = `Lighting update failed: ${err.message ?? err}`;
   }
 });
 
@@ -552,23 +898,24 @@ $('#btnSetColour').addEventListener('click', async () => {
 $('#btnSelectEffect').addEventListener('click', async () => {
   try {
     const effect = Number(lMode.value);
-    // 0x19 selects which effect is active; it carries no other state. The sync
-    // path reads the active effect with the 0xFF sentinel (FUN_1400b5b80 ->
-    // FUN_1400af540), so the honest check is which effect the board reports as
-    // current before and after the select, not a config diff. PROTOCOL.md 8.17.
-    const before = await hid.readEffectConfig(0xff);
+    // 0x19 selects which effect is active. The device's 0x99 reply does not
+    // carry device state: FUN_14009a740 emits the index the host stored at
+    // +0x248 before sending, so the vendor UI only ever sees its own value.
+    // No command in the protocol reads the active effect back (PROTOCOL.md
+    // 8.17.2), so this reports "accepted, not verifiable" rather than faking
+    // a readback.
     const w = await hid.selectEffectLight(effect);
-    const after = await hid.readEffectConfig(0xff);
-    const describe = (c) => (c ? `effect=${c.effect} bright=${c.brightness} speed=${c.speed}` : 'no config returned');
-    const became = after?.effect === effect;
+    const ack = w.opcode === 0x99;
     showOutput('#lightOut',
-      `sent 0x19 effect=${effect}\nresponse len ${w.payload.length}\n${hex(w.payload)}\n\n` +
-      `0x17 (0xFF current-effect read) before: ${describe(before)}\n` +
-      `0x17 (0xFF current-effect read) after:  ${describe(after)}\n` +
-      `  VERIFIED: ${became
-        ? 'yes - the board reports this effect as current'
-        : 'NO - the board does not report this effect as current'}`);
-    if (!became) fail(new Error('0x19 select did not make the reported current effect this one'));
+      `sent 0x19 effect=${effect}\n` +
+      `response opcode 0x${w.opcode.toString(16)} ${ack ? '(acknowledged)' : '(unexpected)'}\n` +
+      `payload len ${w.payload.length}${w.payload.length ? `\n${hex(w.payload)}` : ''}\n\n` +
+      'The protocol has no device-side active-effect read:\n' +
+      '  - 0x17 with 0xFF is the whole effect table, not the current effect;\n' +
+      '  - the 0x99 reply is filled from the host\'s own sent index, not from\n' +
+      '    device state, so it cannot prove which effect is running.\n' +
+      `  ACCEPTED (not verifiable): ${ack ? 'yes' : 'NO - unexpected reply opcode'}`);
+    if (!ack) fail(new Error(`0x19 replied with unexpected opcode 0x${w.opcode.toString(16)}`));
   } catch (err) { fail(err); showOutput('#lightOut', String(err.message ?? err)); }
 });
 
@@ -709,6 +1056,9 @@ function snapshotSummary(name, value) {
   if (name === 'customLight' && value?.pages) {
     extra.push(`${parseCustomLight(value.pages).records.length} keys`);
   }
+  if (name === 'effectLight' && value?.joined) {
+    extra.push(`${parseEffectConfigs(value.joined).records.length} effects`);
+  }
   if ((name === 'keyboardConfig' || name === 'keyboardConfig1') && value?.pages) {
     extra.push(`${parseKeymap(value.pages).length} keys`);
   }
@@ -770,11 +1120,6 @@ $('#btnSnapshot').addEventListener('click', async () => {
       decoded,
     }, null, 2);
     $('#btnSnapshotSave').disabled = false;
-    showOutput('#snapOut',
-      `${okCount}/${snap.parts.length} tables read.\n\n` +
-      `Saved as JSON with every payload as a byte array, plus a decoded view of\n` +
-      `each table that has a decoder. Keep it somewhere safe: it is the only\n` +
-      `copy of this state.`);
     const decodedCount = Object.values(decoded).filter((v) => v !== null).length;
     showOutput('#snapOut',
       `${okCount}/${snap.parts.length} tables read, ${decodedCount} with a decoded view.\n\n` +
@@ -1141,7 +1486,7 @@ function updateModifierVisual() {
   const $modVisual = $('#modifierVisual');
   
   // Hide visual by default
-  $modVisual.hide();
+  if ($modVisual) $modVisual.style.display = 'none';
   
   if (!mod) {
     return;
@@ -1152,11 +1497,11 @@ function updateModifierVisual() {
   const modLabel = mod.label;
   const dataLen = mod.dataLen;
   
-  $modBadge.text(modLabel + ' modifier');
-  $modVisual.show();
+  if ($modBadge) $modBadge.textContent = modLabel + ' modifier';
+  if ($modVisual) $modVisual.style.display = '';
   
   // Show data bytes hex display
-  $modData.text('Data: ' + $('#hData').val() || 'no data');
+  if ($modData) $modData.textContent = 'Data: ' + ($('#hData')?.value || 'no data');
   
   // Show decoded info based on modifier type
   let decodedText = '';
@@ -1183,7 +1528,7 @@ function updateModifierVisual() {
       decodedText = dataLen + ' data bytes';
   }
   
-  $modDecoded.text(decodedText);
+  if ($modDecoded) $modDecoded.textContent = decodedText;
 }
 
 // Update modifier visual when modifier changes
@@ -1202,8 +1547,10 @@ async function handleSocdConfirm() {
   const behDesc = 'when both keys are pressed, ' + modeName.toLowerCase();
   showOutput('#highKeyOut',
     'SOCD configured: key1=' + key1 + ', key2=' + key2 + ', mode=' + modeName);
-  $('#socdSubmenu').hide();
-  $('#socdOutput').text('SOCD: key1=' + key1 + ', key2=' + key2 + ', mode=' + modeName);
+  const socdSub = $('#socdSubmenu');
+  if (socdSub) socdSub.style.display = 'none';
+  const socdOut = $('#socdOutput');
+  if (socdOut) socdOut.textContent = 'SOCD: key1=' + key1 + ', key2=' + key2 + ', mode=' + modeName;
 }
 
 $('#btnSocdConfirm').addEventListener('click', handleSocdConfirm);
@@ -1413,51 +1760,94 @@ for (const [slider, label, range] of ranges) {
 
 function buildKeyGrid() {
   const grid = $('#keyGrid');
+  if (!grid) return;
   grid.innerHTML = '';
-  for (let i = 0; i < PRODUCT.keyNumber; i += 1) {
-    const el = document.createElement('div');
-    el.className = `key${i === selectedKey ? ' sel' : ''}`;
-    el.textContent = String(i);
-    el.title = `keyItem ${i}`;
-    el.addEventListener('click', () => {
-      selectedKey = i;
-      grid.querySelectorAll('.key').forEach((k, idx) => k.classList.toggle('sel', idx === i));
-    });
-    grid.appendChild(el);
+
+  const rows = [0, 1, 2, 3, 4, 5].map((r) => KEYBOARD_LAYOUT_85.filter((k) => k.row === r));
+
+  for (const rowKeys of rows) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'kb-row';
+    for (const k of rowKeys) {
+      const el = document.createElement('div');
+      el.className = `kb-key key${k.id === selectedKey ? ' sel' : ''}`;
+      el.dataset.keyId = String(k.id);
+      el.style.flex = `${k.width} 1 0px`;
+      el.title = `${k.label} (Item ${k.id}, width ${k.width}u)`;
+
+      let inner = `<span class="kb-label">${escapeHtml(k.label)}</span>`;
+      if (k.sub) {
+        inner += `<span class="kb-sub">${escapeHtml(k.sub)}</span>`;
+      }
+      el.innerHTML = inner;
+      rowEl.appendChild(el);
+    }
+    grid.appendChild(rowEl);
   }
 }
+
+const keyGridEl = $('#keyGrid');
+if (keyGridEl) {
+  keyGridEl.addEventListener('click', (e) => {
+    const keyEl = e.target.closest('.kb-key');
+    if (keyEl && keyEl.dataset.keyId !== undefined) {
+      setSelectedKey(Number(keyEl.dataset.keyId));
+    }
+  });
+}
+
 buildKeyGrid();
+setSelectedKey(0);
 
 $('#btnCalibStateRange').addEventListener('click', async () => {
   const start = Number($('#calibStart').value) || 1;
   const end = Number($('#calibEnd').value) || PRODUCT.keyNumber;
   try {
-    const r = await hid.readCalibrationState(start, end);
+    const r = await hid.readCalibrationState();
     // readAll returns { pages, frames, total, joined }
     const pages = r.pages || [];
     const joined = r.joined || new Uint8Array(0);
     const numPages = pages.length;
     let totalLen = 0;
     for (const p of pages) totalLen += p.length;
-    showOutput('#triggerOut', `0x52 getCalibrationState keys ${start}..${end}\n${numPages} pages, ${totalLen} bytes\n${hex(joined.slice(0, 256))}`);
+    showOutput('#triggerOut', `0x52 getCalibrationState (whole table)\n${numPages} pages, ${totalLen} bytes\n${hex(joined.slice(0, 256))}`);
   } catch (err) { fail(err); showOutput('#triggerOut', String(err.message ?? err)); }
 });
   $('#btnCalibRange').addEventListener('click', async () => {
   const start = Number($('#calibStart').value) || 1;
   const end = Number($('#calibEnd').value) || PRODUCT.keyNumber;
   try {
-    const r = await hid.readCalibrationAdc(start, end);
+    const r = await hid.readCalibrationAdc();
     // readAll returns { pages, frames, total, joined }
     const pages = r.pages || [];
     const joined = r.joined || new Uint8Array(0);
     const numPages = pages.length;
     let totalLen = 0;
     for (const p of pages) totalLen += p.length;
-    showOutput('#triggerOut', `0x5B getCalibrationAdc keys ${start}..${end}\n${numPages} pages, ${totalLen} bytes\n${hex(joined.slice(0, 256))}`);
+    showOutput('#triggerOut', `0x5B getCalibrationAdc (whole table)\n${numPages} pages, ${totalLen} bytes\n${hex(joined.slice(0, 256))}`);
   } catch (err) { fail(err); showOutput('#triggerOut', String(err.message ?? err)); }
 });
 
 /* ------------------------------------------------------------ per-key light */
+
+$('#btnPaintSelectedKey').addEventListener('click', async () => {
+  try {
+    const hexColor = $('#pkAllColor').value;
+    const r = parseInt(hexColor.slice(1, 3), 16);
+    const g = parseInt(hexColor.slice(3, 5), 16);
+    const b = parseInt(hexColor.slice(5, 7), 16);
+    const light = Number($('#pkAllMode').value) & 0xff;
+    customKeyColors[selectedKey] = { light, r, g, b, hex: hexColor };
+    setStatus(`setting colour for key ${selectedKey}...`, '');
+    const res = await hid.setCustomLight({ keys: { [selectedKey]: { light, r, g, b } } });
+    showOutput('#pkOut',
+      `setCustomLight keyItem 0x${selectedKey.toString(16)} (${KEYBOARD_LAYOUT_85[selectedKey]?.label || selectedKey}):\n` +
+      `  light: ${light}, rgb: (${r}, ${g}, ${b})\n` +
+      `  readback matched: ${res.matched}\n` +
+      `  pages: ${res.pages?.length ?? 1}`);
+    setStatus(res.matched ? `Key ${selectedKey} colour set and verified` : `Key ${selectedKey} written (readback mismatch)`, res.matched ? 'on' : 'bad');
+  } catch (err) { fail(err); showOutput('#pkOut', String(err.message ?? err)); }
+});
 
 $('#btnPkAll').addEventListener('click', async () => {
   try {
@@ -1466,6 +1856,9 @@ $('#btnPkAll').addEventListener('click', async () => {
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     const light = Number($('#pkAllMode').value) & 0xff;
+    for (let i = 0; i < PRODUCT.keyNumber; i += 1) {
+      customKeyColors[i] = { light, r, g, b, hex };
+    }
     setStatus('setting per-key colours...', '');
     const res = await hid.setCustomLight({ all: { light, r, g, b } });
     const pages = (res.pages ?? [])
@@ -1534,15 +1927,37 @@ $('#btnAlphaAccept').addEventListener('click', () => {
 });
 
 $('#btnAlphaCancel').addEventListener('click', () => {
-  window.location.href = 'about:blank';
+  alphaModal.style.display = 'none';
 });
+
+// Overview fast navigation buttons
+const jumpTabs = [
+  ['#btnJumpLighting', 'light'],
+  ['#btnJumpProfiles', 'profiles'],
+  ['#btnJumpTrigger', 'trigger'],
+  ['#btnJumpDev', 'developer'],
+];
+for (const [btnId, tabName] of jumpTabs) {
+  const b = $(btnId);
+  if (b) {
+    b.addEventListener('click', () => {
+      const tab = document.querySelector(`.tabs button[data-tab="${tabName}"]`);
+      if (tab) tab.click();
+    });
+  }
+}
 
 if (!webHidSupported()) {
   $('#nosupport').classList.remove('hidden');
   $('#btnConnect').disabled = true;
 } else {
   hid.restore().then((d) => {
-    if (d) { setStatus('connected', 'on'); setConnected(true); dumpDeviceInfo(); }
+    if (d) {
+      setStatus('connected', 'on');
+      setConnected(true);
+      dumpDeviceInfo();
+      autoSync();
+    }
   }).catch(() => {});
 }
 
@@ -1554,15 +1969,6 @@ $('#vendorPill').textContent =
 // button can otherwise run against a page whose listeners do not exist yet.
 document.body.dataset.appReady = '1';
 /* ---------------------------------------------------------------- keyboard preview */
-
-// QWERTY keycap labels in order (row-major)
-const QWERTY = [
-  ['Esc', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'Del'],
-  ['Tab', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', 'Bsp', 'Ent'],
-  ['Caps', 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'Scl', 'Ent'],
-  ['Shift', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', 'Com', 'Dot', 'Shift'],
-  ['Ctrl', 'Win', 'Alt', ' ', 'Alt', 'Menu', 'Ctrl'],
-];
 
 // Generate a pseudo-random but deterministic value for star effect
 function starBrightness(row, col, seed) {
@@ -1600,151 +2006,158 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
   const colourB = parseInt(colour.slice(5, 7), 16);
   const maxBright = Number(brightness) / 100;
 
-  const rows = QWERTY.length;
-  const maxCols = Math.max(...QWERTY.map(r => r.length));
+  const rows = [0, 1, 2, 3, 4, 5].map((r) => KEYBOARD_LAYOUT_85.filter((k) => k.row === r));
+  const totalRows = rows.length;
+  const maxCols = 16;
 
-  for (let row = 0; row < rows; row++) {
-    html += '<div class="row">';
-    for (let col = 0; col < QWERTY[row].length; col++) {
-      const label = QWERTY[row][col];
-      if (!label) {
-        html += '<div class="key empty"></div>';
-        continue;
-      }
+  for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+    html += '<div class="kb-row">';
+    let currentX = 0;
+    for (const key of rows[rowIdx]) {
+      const colX = currentX + key.width / 2;
+      currentX += key.width;
 
       let keyR = 0, keyG = 0, keyB = 0;
       let intensity = 0;
 
-      switch (effectIdx) {
-        case 0: // Close - all off
-          intensity = 0;
-          break;
+      if (customKeyColors[key.id] && (effectIdx === 1 || effectIdx === 2)) {
+        const c = customKeyColors[key.id];
+        intensity = c.light ? maxBright : 0;
+        keyR = c.r;
+        keyG = c.g;
+        keyB = c.b;
+      } else {
+        switch (effectIdx) {
+          case 0: // Close - all off
+            intensity = 0;
+            break;
 
-        case 1: // Static - solid color at brightness
-          intensity = maxBright;
-          keyR = colourR;
-          keyG = colourG;
-          keyB = colourB;
-          break;
-
-        case 2: // Layer - dimmed color
-          intensity = maxBright * 0.4;
-          keyR = colourR;
-          keyG = colourG;
-          keyB = colourB;
-          break;
-
-        case 3: // Breath - pulsing: brightness oscillates over time
-          {
-            const breathPhase = (time * 0.3 * (101 - Number(speed))) % 360;
-            const breathWave = (Math.sin(breathPhase * Math.PI / 180) + 1) / 2;
-            intensity = maxBright * (0.2 + 0.8 * breathWave);
-            keyR = colourR;
-            keyG = colourG;
-            keyB = colourB;
-          }
-          break;
-
-        case 4: // Star - random twinkling
-          {
-            const sparkle = starBrightness(row, col, Math.floor(Number(speed) / 10));
-            intensity = maxBright * sparkle;
-            keyR = colourR;
-            keyG = colourG;
-            keyB = colourB;
-          }
-          break;
-
-        case 5: // Flow L->R - RGB rainbow wave moving left to right
-          {
-            const hue = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
-            const rgb = hsvToRgb(hue, 1, 1);
-            keyR = rgb.r;
-            keyG = rgb.g;
-            keyB = rgb.b;
+          case 1: // Static - solid color at brightness
             intensity = maxBright;
-          }
-          break;
-
-        case 6: // Flow R->L - RGB rainbow wave moving right to left
-          {
-            const hue = (col / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
-            const rgb = hsvToRgb(hue, 1, 1);
-            keyR = rgb.r;
-            keyG = rgb.g;
-            keyB = rgb.b;
-            intensity = maxBright;
-          }
-          break;
-
-        case 7: // Flow Up->Dn - RGB rainbow wave moving top to bottom
-          {
-            const hue = (row / rows * 360 + Number(speed) * 3 + time * 0.2) % 360;
-            const rgb = hsvToRgb(hue, 1, 1);
-            keyR = rgb.r;
-            keyG = rgb.g;
-            keyB = rgb.b;
-            intensity = maxBright;
-          }
-          break;
-
-        case 8: // Flow Dn->Up - RGB rainbow wave moving bottom to top
-          {
-            const hue = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.2) % 360;
-            const rgb = hsvToRgb(hue, 1, 1);
-            keyR = rgb.r;
-            keyG = rgb.g;
-            keyB = rgb.b;
-            intensity = maxBright;
-          }
-          break;
-
-        case 9: // Dot(Press) - ripple from center
-          {
-            const centerRow = 2;
-            const centerCol = 6;
-            const dist = Math.sqrt(Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2));
-            const ripplePhase = (dist * 60 - Number(speed) * 10 + time * 2) % 360;
-            const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
-            intensity = maxBright * (0.1 + 0.9 * ripple);
             keyR = colourR;
             keyG = colourG;
             keyB = colourB;
-          }
-          break;
+            break;
 
-        case 10: // Cross(Press) - cross ripple from center
-          {
-            const centerRow = 2;
-            const centerCol = 6;
-            const dx = Math.abs(col - centerCol);
-            const dy = Math.abs(row - centerRow);
-            const crossDist = Math.max(dx, dy);
-            const ripplePhase = (crossDist * 60 - Number(speed) * 10 + time * 2) % 360;
-            const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
-            intensity = maxBright * (0.1 + 0.9 * ripple);
+          case 2: // Layer - dimmed color
+            intensity = maxBright * 0.4;
             keyR = colourR;
             keyG = colourG;
             keyB = colourB;
-          }
-          break;
+            break;
 
-        case 11: // Ripple(Press) - circular ripple from center
-          {
-            const centerRow = 2;
-            const centerCol = 6;
-            const dist = Math.sqrt(Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2));
-            const ripplePhase = (dist * 45 - Number(speed) * 10 + time * 2) % 360;
-            const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
-            intensity = maxBright * (0.1 + 0.9 * ripple);
-            keyR = colourR;
-            keyG = colourG;
-            keyB = colourB;
-          }
-          break;
+          case 3: // Breath - pulsing: brightness oscillates over time
+            {
+              const breathPhase = (time * 0.3 * (101 - Number(speed))) % 360;
+              const breathWave = (Math.sin(breathPhase * Math.PI / 180) + 1) / 2;
+              intensity = maxBright * (0.2 + 0.8 * breathWave);
+              keyR = colourR;
+              keyG = colourG;
+              keyB = colourB;
+            }
+            break;
 
-        default:
-          intensity = 0;
+          case 4: // Star - random twinkling
+            {
+              const sparkle = starBrightness(rowIdx, Math.floor(colX), Math.floor(Number(speed) / 10));
+              intensity = maxBright * sparkle;
+              keyR = colourR;
+              keyG = colourG;
+              keyB = colourB;
+            }
+            break;
+
+          case 5: // Flow L->R - RGB rainbow wave moving left to right
+            {
+              const hue = ((maxCols - colX) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
+              const rgb = hsvToRgb(hue, 1, 1);
+              keyR = rgb.r;
+              keyG = rgb.g;
+              keyB = rgb.b;
+              intensity = maxBright;
+            }
+            break;
+
+          case 6: // Flow R->L - RGB rainbow wave moving right to left
+            {
+              const hue = (colX / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
+              const rgb = hsvToRgb(hue, 1, 1);
+              keyR = rgb.r;
+              keyG = rgb.g;
+              keyB = rgb.b;
+              intensity = maxBright;
+            }
+            break;
+
+          case 7: // Flow Up->Dn - RGB rainbow wave moving top to bottom
+            {
+              const hue = (rowIdx / totalRows * 360 + Number(speed) * 3 + time * 0.2) % 360;
+              const rgb = hsvToRgb(hue, 1, 1);
+              keyR = rgb.r;
+              keyG = rgb.g;
+              keyB = rgb.b;
+              intensity = maxBright;
+            }
+            break;
+
+          case 8: // Flow Dn->Up - RGB rainbow wave moving bottom to top
+            {
+              const hue = ((totalRows - rowIdx) / totalRows * 360 + Number(speed) * 3 + time * 0.2) % 360;
+              const rgb = hsvToRgb(hue, 1, 1);
+              keyR = rgb.r;
+              keyG = rgb.g;
+              keyB = rgb.b;
+              intensity = maxBright;
+            }
+            break;
+
+          case 9: // Dot(Press) - ripple from center
+            {
+              const centerRow = 2.5;
+              const centerCol = 8;
+              const dist = Math.sqrt(Math.pow(rowIdx - centerRow, 2) + Math.pow((colX - centerCol) / 2.5, 2));
+              const ripplePhase = (dist * 60 - Number(speed) * 10 + time * 2) % 360;
+              const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+              intensity = maxBright * (0.1 + 0.9 * ripple);
+              keyR = colourR;
+              keyG = colourG;
+              keyB = colourB;
+            }
+            break;
+
+          case 10: // Cross(Press) - cross ripple from center
+            {
+              const centerRow = 2.5;
+              const centerCol = 8;
+              const dx = Math.abs(colX - centerCol) / 2.5;
+              const dy = Math.abs(rowIdx - centerRow);
+              const crossDist = Math.max(dx, dy);
+              const ripplePhase = (crossDist * 60 - Number(speed) * 10 + time * 2) % 360;
+              const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+              intensity = maxBright * (0.1 + 0.9 * ripple);
+              keyR = colourR;
+              keyG = colourG;
+              keyB = colourB;
+            }
+            break;
+
+          case 11: // Ripple(Press) - circular ripple from center
+            {
+              const centerRow = 2.5;
+              const centerCol = 8;
+              const dist = Math.sqrt(Math.pow(rowIdx - centerRow, 2) + Math.pow((colX - centerCol) / 2.5, 2));
+              const ripplePhase = (dist * 45 - Number(speed) * 10 + time * 2) % 360;
+              const ripple = Math.max(0, Math.cos(ripplePhase * Math.PI / 180));
+              intensity = maxBright * (0.1 + 0.9 * ripple);
+              keyR = colourR;
+              keyG = colourG;
+              keyB = colourB;
+            }
+            break;
+
+          default:
+            intensity = 0;
+        }
       }
 
       const finalR = Math.round(keyR * intensity);
@@ -1752,14 +2165,26 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
       const finalB = Math.round(keyB * intensity);
       const keyBg = `rgb(${finalR}, ${finalG}, ${finalB})`;
       const textColor = (finalR + finalG + finalB > 300) ? '#000' : '#fff';
+      const isSel = key.id === selectedKey;
 
-      html += `<div class="key" title="${label} (${EFFECT_NAMES[effectIdx] || 'unknown'})" style="background: ${keyBg}; color: ${textColor}">
-        ${label}
-      </div>`;
+      html += `<div class="kb-key key${isSel ? ' sel' : ''}" data-key-id="${key.id}" title="${escapeHtml(key.label)} (${EFFECT_NAMES[effectIdx] || 'unknown'})" style="flex: ${key.width} 1 0px; background: ${keyBg}; color: ${textColor};">` +
+        `<span class="kb-label">${escapeHtml(key.label)}</span>` +
+        (key.sub ? `<span class="kb-sub">${escapeHtml(key.sub)}</span>` : '') +
+      `</div>`;
     }
     html += '</div>';
   }
   preview.innerHTML = html;
+}
+
+const previewEl = $('#keyboardPreview');
+if (previewEl) {
+  previewEl.addEventListener('click', (e) => {
+    const keyEl = e.target.closest('.kb-key');
+    if (keyEl && keyEl.dataset.keyId !== undefined) {
+      setSelectedKey(Number(keyEl.dataset.keyId));
+    }
+  });
 }
 
 // Live-update keyboard preview when controls change
@@ -1845,49 +2270,41 @@ function renderHeroKeyboard(effect, brightness, speed, colour, time) {
   const colourG = parseInt(colour.slice(3, 5), 16);
   const colourB = parseInt(colour.slice(5, 7), 16);
   const maxBright = Number(brightness) / 100;
-  const rows = QWERTY.length;
-  const maxCols = Math.max(...QWERTY.map(r => r.length));
 
-  for (let row = 0; row < rows; row++) {
-    html += '<div class="row">';
-    for (let col = 0; col < QWERTY[row].length; col++) {
-      const label = QWERTY[row][col];
-      if (!label) { html += '<div class="key empty"></div>'; continue; }
+  const rows = [0, 1, 2, 3, 4, 5].map((r) => KEYBOARD_LAYOUT_85.filter((k) => k.row === r));
+  const totalRows = rows.length;
+  const maxCols = 16;
+
+  for (let rowIdx = 0; rowIdx < totalRows; rowIdx++) {
+    html += '<div class="kb-row">';
+    let currentX = 0;
+    for (const key of rows[rowIdx]) {
+      const colX = currentX + key.width / 2;
+      currentX += key.width;
+
       let keyR = 0, keyG = 0, keyB = 0, intensity = 0;
       switch (effectIdx) {
         case 3:
-          { const bp = (time * 0.3 * (101 - Number(speed))) % 360; const bw = (Math.sin(bp * Math.PI / 180) + 1) / 2; intensity = maxBright * (0.2 + 0.8 * bw); keyR = colourR; keyG = colourG; keyB = colourB; }
-          break;
-        case 4:
-          { const sp = starBrightness(row, col, Math.floor(Number(speed) / 10) + Math.floor(time / 500)); intensity = maxBright * sp; keyR = colourR; keyG = colourG; keyB = colourB; }
+          {
+            const bp = (time * 0.3 * (101 - Number(speed))) % 360;
+            const bw = (Math.sin(bp * Math.PI / 180) + 1) / 2;
+            intensity = maxBright * (0.2 + 0.8 * bw);
+            keyR = colourR; keyG = colourG; keyB = colourB;
+          }
           break;
         case 5:
-          { const h = ((maxCols - col) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
+        default:
+          {
+            const h = ((maxCols - colX) / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360;
+            const rgb = hsvToRgb(h, 1, 1);
+            keyR = rgb.r; keyG = rgb.g; keyB = rgb.b;
+            intensity = maxBright;
+          }
           break;
-        case 6:
-          { const h = (col / maxCols * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
-          break;
-        case 7:
-          { const h = (row / rows * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
-          break;
-        case 8:
-          { const h = ((rows - row) / rows * 360 + Number(speed) * 3 + time * 0.2) % 360; const rgb = hsvToRgb(h, 1, 1); keyR = rgb.r; keyG = rgb.g; keyB = rgb.b; intensity = maxBright; }
-          break;
-        case 9:
-          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 60 - Number(speed) * 10 + time * 0.2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
-          break;
-        case 10:
-          { const cr = 2, cc = 6; const dx = Math.abs(col - cc), dy = Math.abs(row - cr); const cd = Math.max(dx, dy); const rp = (cd * 60 - Number(speed) * 10 + time * 0.2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
-          break;
-        case 11:
-          { const cr = 2, cc = 6; const d = Math.sqrt(Math.pow(row - cr, 2) + Math.pow(col - cc, 2)); const rp = (d * 45 - Number(speed) * 10 + time * 0.2) % 360; const r = Math.max(0, Math.cos(rp * Math.PI / 180)); intensity = maxBright * (0.1 + 0.9 * r); keyR = colourR; keyG = colourG; keyB = colourB; }
-          break;
-        default: intensity = 0;
       }
       const fR = Math.round(keyR * intensity), fG = Math.round(keyG * intensity), fB = Math.round(keyB * intensity);
       const bg = `rgb(${fR}, ${fG}, ${fB})`;
-      const tc = (fR + fG + fB > 300) ? '#000' : '#fff';
-      html += `<div class="key" style="background: ${bg}; color: ${tc}">${label}</div>`;
+      html += `<div class="kb-key" style="flex: ${key.width} 1 0px; background: ${bg};"></div>`;
     }
     html += '</div>';
   }

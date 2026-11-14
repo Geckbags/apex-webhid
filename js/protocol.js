@@ -302,7 +302,7 @@ export function decodeSnapshotSection(name, value) {
         return pages ? parseCustomLight(pages) : null;
       case "effectLight": {
         const p = value.payload ?? value.joined;
-        return p && p.length >= 8 ? parseEffectConfig(p) : null;
+        return p && p.length >= 8 ? parseEffectConfigs(p) : null;
       }
       case "effectNames":
         return pages ? parseEffectNameSlots(pages) : null;
@@ -1715,6 +1715,9 @@ export const PAYLOAD = {
  */
 export const LIGHT_CONFIG_SENTINEL = 0xff;
 
+/** One effect-table record is the same 8-byte wire shape as the `0x13` payload. */
+export const EFFECT_RECORD_LEN = 8;
+
 /** uint64 byte index -> wire payload index, for 0x13. */
 export const LIGHT_WIRE_ORDER = [0x240, 0x242, 0x243, 0x244, 0x241, 0x245, 0x246, 0x247];
 
@@ -1835,6 +1838,41 @@ export function parseEffectConfig(payload) {
     unnamed: [],
     opaque: Array.from(payload.subarray(3, 8)),
   };
+}
+
+/**
+ * Split a `0x17` whole-table read into per-effect records.
+ *
+ * Index `0xFF` is not "the current effect". `FUN_1400af540` starts a paged
+ * read of the entire effect table, and `FUN_140097e40` appends one 8-byte wire
+ * record per response page (PROTOCOL.md 8.17.2). The record shape is the same
+ * as the `0x13` payload, so each record is decoded with
+ * {@link parseEffectConfig}; `slot` is its position in the returned table,
+ * which need not be the same as its `effect` field if the firmware ever
+ * reorders the table.
+ *
+ * Trailing bytes that do not form a whole record are counted rather than
+ * dropped, matching `parseCustomLight`: a format change must be visible.
+ *
+ * @param {Uint8Array} payload concatenated response payloads
+ * @returns {{records: object[], trailing: number}}
+ */
+export function parseEffectConfigs(payload) {
+  const bytes = payload instanceof Uint8Array
+    ? payload
+    : Uint8Array.from(payload ?? []);
+  const whole = Math.floor(bytes.length / EFFECT_RECORD_LEN);
+  const records = [];
+  for (let i = 0; i < whole; i++) {
+    const start = i * EFFECT_RECORD_LEN;
+    const rec = bytes.subarray(start, start + EFFECT_RECORD_LEN);
+    records.push({
+      slot: i,
+      ...parseEffectConfig(rec),
+      bytes: Array.from(rec),
+    });
+  }
+  return { records, trailing: bytes.length - whole * EFFECT_RECORD_LEN };
 }
 
 /**

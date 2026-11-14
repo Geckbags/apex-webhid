@@ -7,8 +7,8 @@ import {
   VID, PID, VENDOR_USAGE_PAGE, WEBHID_REPORT_ID, REPORT_SIZE, MAGIC, CMD,
   buildFrame, frameToWebHidData, parseResponse, opcodeName, pagedPayloadSize,
   parseEffectNameSlots,
-  commandClass, commandClass as _commandClass, FORBIDDEN_COMMANDS,
-  buildEffectConfig, parseEffectConfig, buildColourConfig, buildHighKeyBinding,
+  commandClass, FORBIDDEN_COMMANDS,
+  buildEffectConfig, parseEffectConfigs, buildColourConfig, buildHighKeyBinding,
   buildSocdRecord, decodeHighKeyRecords,
   buildSetHighKeyPages, HIGH_KEY_SLOT_LEN, HIGH_KEY_SLOT_PAGE_SIZE,
   pageMacroPayloads, parseMacroRecords, MACRO_SLOT_MIN, MACRO_SLOT_MAX,
@@ -91,6 +91,8 @@ export class ApexHid {
     this.nextToken = 1;
     this.trace = [];
     this.traceLimit = 500;
+    /** @type {AbortController|null} */
+    this._listenerAbort = null;
   }
 
   on(event, fn) {
@@ -159,12 +161,17 @@ export class ApexHid {
     this.device = device;
     this._connected = true;
 
-    device.addEventListener('inputreport', (event) => this.#onInput(event));
+    // Tear down any listeners from a previous attach() so they don't stack.
+    if (this._listenerAbort) this._listenerAbort.abort();
+    this._listenerAbort = new AbortController();
+    const signal = this._listenerAbort.signal;
+
+    device.addEventListener('inputreport', (event) => this.#onInput(event), { signal });
     navigator.hid.addEventListener('connect', (event) => {
       if (event.device.vendorId === VID && event.device.productId === PID) {
         this.emit('reconnect', event.device);
       }
-    });
+    }, { signal });
     navigator.hid.addEventListener('disconnect', (event) => {
       if (event.device === this.device) {
         this.emit('disconnect', event.device);
@@ -173,12 +180,16 @@ export class ApexHid {
         }
         this.pending.clear();
       }
-    });
+    }, { signal });
 
     this.emit('attach', device);
   }
 
   async close() {
+    if (this._listenerAbort) {
+      this._listenerAbort.abort();
+      this._listenerAbort = null;
+    }
     if (this.device) {
       try {
         await this.device.close();
@@ -386,9 +397,9 @@ export class ApexHid {
       step('wholeParam', () => this.getWholeParam()),
       step('customLight', () => this.readAll(CMD.GET_CUSTOM_LIGHT)),
       // SyncConfigUtil's 0x17 initiator is called with 0xFF
-      // (FUN_1400b5b80 -> FUN_1400af540); the device returns the current
-      // effect's config rather than a table indexed by 0xFF.
-      step('effectLight', () => this.getEffectLight(0xff)),
+      // (FUN_1400b5b80 -> FUN_1400af540); that is a paged read of the whole
+      // effect table, not the active effect (PROTOCOL.md 8.17.2).
+      step('effectLight', () => this.readEffectConfigs()),
       step('effectNames', () => this.readEffectNamePages()),
       // FUN_1400b5650/FUN_1400b5850 read layer 0 and then layer 1 before the
       // high-key read, so a faithful snapshot carries both keymap layers.
@@ -876,18 +887,48 @@ export class ApexHid {
   }
 
   /**
-   * Read back one effect config and return it in field form.
-   * Safe to call before any `setEffectLight` to seed `readback`.
+   * Read and decode the whole effect table.
    *
-   * @param {number} [effect] effect index to query (the `0x17` payload byte)
+   * `0x17` with index `0xFF` is a paged table read, not a current-effect read
+   * (PROTOCOL.md 8.17.2). `FUN_1400af540` clears the record list and starts at
+   * page 1/1; `FUN_140097e40` appends each 8-byte record and asks for the next
+   * page until `frame == total`. This mirrors that sequence.
+   *
+   * @returns {Promise<{records: object[], trailing: number, pages: Uint8Array[],
+   *                    frames: object[], total: number, joined: Uint8Array}>}
+   */
+  async readEffectConfigs() {
+    const r = await this.readAll(CMD.GET_EFFECT_LIGHT, {
+      payload: Uint8Array.of(0xff),
+    });
+    return {
+      ...parseEffectConfigs(r.joined),
+      pages: r.pages,
+      frames: r.frames,
+      total: r.total,
+      joined: r.joined,
+    };
+  }
+
+  /**
+   * Read one effect's record from the whole table.
+   *
+   * The vendor app populates the lighting form from its own effect-info table,
+   * not from the device, and there is no command that reports which effect is
+   * active. So "read effect N" means "find effect N in the `0x17` table", which
+   * is also why verification after a write can find the record it wrote rather
+   * than whichever record the device happens to return first.
+   *
+   * @param {number} [effect] effect index 0..254; `0xFF` is the table sentinel
+   * @returns {Promise<object|null>} decoded record, or null when absent
    */
   async readEffectConfig(effect = 0) {
-    const r = await this.getEffectLight(effect);
-    const p = r.payload;
-    if (p.length >= 8) return parseEffectConfig(p);
-    // The device may return a shorter form depending on how many effects it
-    // reports. Fall back to reading each effect index individually.
-    return null;
+    if (!Number.isInteger(effect) || effect < 0 || effect > 0xfe) {
+      throw new RangeError(
+        `effect index must be 0..254, got ${effect}; 0xFF reads the whole table, use readEffectConfigs()`);
+    }
+    const table = await this.readEffectConfigs();
+    return table.records.find((r) => r.effect === effect) ?? null;
   }
 
   /**
@@ -917,17 +958,30 @@ export class ApexHid {
    * Set effect / brightness / speed and then prove it took.
    *
    * `0x13` acknowledges with a status byte, but an accepted status is not proof
-   * that the firmware stored what we sent. This reads the config back through
-   * `0x17` and compares the three fields we control.
+   * that the firmware stored what we sent. This reads the whole `0x17` table
+   * before and after, finds the record whose `effect` field is the one written,
+   * and compares the three fields we control. Reading the table - rather than
+   * trusting the first record returned - is what makes a write to effect 1..11
+   * verifiable at all (PROTOCOL.md 8.17.2).
    *
-   * @returns {{write: object, before: object|null, after: object|null, match: boolean}}
+   * Refuses to write when the target record is absent: without it the
+   * device-owned bytes (fullColor, functionFlag, RGB) would be zeroed.
+   *
+   * @returns {{write: object, before: object|null, after: object|null,
+   *            beforeTable: object, afterTable: object, match: boolean}}
    */
   async setEffectLightVerified({ effect, brightness = 100, speed = 100,
                                   red = null, green = null, blue = null } = {}) {
-    const before = await this.readEffectConfig(effect);
-    const readback = before ? Uint8Array.of(0, 0, 0, ...before.opaque) : null;
+    const beforeTable = await this.readEffectConfigs();
+    const before = beforeTable.records.find((r) => r.effect === effect) ?? null;
+    if (!before) {
+      throw new Error(
+        `effect ${effect} is not in the 0x17 table; refusing to write without its current record`);
+    }
+    const readback = Uint8Array.of(0, 0, 0, ...before.opaque);
     const write = await this.setEffectLight({ effect, brightness, speed, red, green, blue, readback });
-    const after = await this.readEffectConfig(effect);
+    const afterTable = await this.readEffectConfigs();
+    const after = afterTable.records.find((r) => r.effect === effect) ?? null;
     const wantColour = red !== null || green !== null || blue !== null;
     const colourOk = !wantColour || !!after && (
       (red === null || after.colour.r === red) &&
@@ -938,7 +992,7 @@ export class ApexHid {
       after.brightness === brightness &&
       after.speed === speed &&
       colourOk;
-    return { write, before, after, match };
+    return { write, before, after, beforeTable, afterTable, match };
   }
 
   /**
@@ -946,18 +1000,30 @@ export class ApexHid {
    * unnamed bytes. This is the exact shape of the Windows app's colour path at
    * `0x140037cd0`, which passes record[1..4] through and substitutes only RGB.
    *
+   * Finds the target record in the table for the same reason as
+   * `setEffectLightVerified`; a write to effect 1..11 must not use slot 0.
+   *
    * @param {{effect: number, red: number, green: number, blue: number}} opts
    */
   async setEffectColour({ effect, red, green, blue }) {
-    const before = await this.readEffectConfig(effect);
-    const readback = before ? Uint8Array.of(0, 0, 0, ...before.opaque) : null;
-    const payload = buildColourConfig({ effect, red, green, blue, brightness: before?.brightness, speed: before?.speed, readback });
+    const beforeTable = await this.readEffectConfigs();
+    const before = beforeTable.records.find((r) => r.effect === effect) ?? null;
+    if (!before) {
+      throw new Error(
+        `effect ${effect} is not in the 0x17 table; refusing to write without its current record`);
+    }
+    const readback = Uint8Array.of(0, 0, 0, ...before.opaque);
+    const payload = buildColourConfig({
+      effect, red, green, blue,
+      brightness: before.brightness, speed: before.speed, readback,
+    });
     const write = await this.request(CMD.SET_EFFECT_LIGHT, payload, {
       allowWrite: true, timeoutMs: 2000,
     });
-    const after = await this.readEffectConfig(effect);
+    const afterTable = await this.readEffectConfigs();
+    const after = afterTable.records.find((r) => r.effect === effect) ?? null;
     const match = !!after && after.colour.r === red && after.colour.g === green && after.colour.b === blue;
-    return { write, before, after, match };
+    return { write, before, after, beforeTable, afterTable, match };
   }
 
   /**
@@ -1005,7 +1071,7 @@ export class ApexHid {
    * This exists so the CLI and a human can do it deliberately, never by accident.
    */
   resetKeyboard() {
-    return this.request(CMD.RESET_KEYBOARD, new Uint8Array(0), { allowWrite: true, allowForbidden: true });
+    return this.request(CMD.RESET_KEYBOARD, Uint8Array.of(0x5a, 0xa5), { allowWrite: true, allowForbidden: true });
   }
 }
 

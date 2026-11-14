@@ -1,0 +1,18 @@
+{
+  "name": "apex-webhid",
+  "version": "0.2.0",
+  "description": "Open-source WebHID control and hidraw CLI for the ANT ESPORTS APEX 200",
+  "type": "module",
+  "scripts": {
+    "test": "./test/run-all.sh",
+    "test:node": "node test/protocol.test.mjs && node test/driver.test.mjs",
+    "check": "node --check js/protocol.js && node --check js/driver.js && node --check js/app.js"
+  },
+  "keywords": [
+    "webhid",
+    "hid",
+    "keyboard",
+    "ant-esports",
+    "apex-200"
+  ]
+}

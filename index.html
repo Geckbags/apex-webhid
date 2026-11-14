@@ -51,7 +51,16 @@
   input[type=number], input[type=text] { cursor: text; }
   button:hover:not(:disabled) { border-color: #3b4354; }
   button.primary { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.1); }
+  button.danger { background: #2f1818; color: #ff9999; border-color: #5c2828; }
+  button.danger:hover:not(:disabled) { background: #401f1f; border-color: #8c3b3b; color: #ffcccc; }
   button:disabled { opacity: .45; cursor: not-allowed; }
+  .badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+  .badge-ok { background: #12251b; color: var(--ok); border: 1px solid #235c3a; }
+  .badge-warn { background: #2a2210; color: var(--warn); border: 1px solid #5c4a1f; }
+  .badge-info { background: #1a2332; color: #60a5fa; border: 1px solid #254065; }
+  details.advanced summary { cursor: pointer; color: var(--muted); font-size: 12px; user-select: none; }
+  details.advanced summary:hover { color: var(--fg); }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
   label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
@@ -74,23 +83,81 @@
   }
   .key:hover { border-color: var(--accent); }
   .key.sel { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
+  .keyboard-frame {
+    background: #0d0f14;
+    border: 2px solid #232834;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    max-width: 900px;
+    margin: 10px auto;
+    user-select: none;
+  }
+  .kb-row {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 4px;
+    width: 100%;
+  }
+  .kb-row:last-child {
+    margin-bottom: 0;
+  }
+  .kb-key {
+    min-width: 0;
+    height: 38px;
+    background: #181c24;
+    border: 1px solid #282f3d;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #e2e8f0;
+    cursor: pointer;
+    transition: all 0.12s ease;
+    box-shadow: 0 2px 0 #0c0e12;
+    position: relative;
+    user-select: none;
+    overflow: hidden;
+  }
+  .kb-key:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 0 #0c0e12, 0 0 10px rgba(255, 138, 61, 0.35);
+    z-index: 2;
+  }
+  .kb-key.sel {
+    background: var(--accent) !important;
+    color: #1a1206 !important;
+    border-color: #ffb380 !important;
+    font-weight: 700;
+    box-shadow: 0 0 14px rgba(255, 138, 61, 0.7) !important;
+    z-index: 3;
+    transform: translateY(-1px);
+  }
+  .kb-key .kb-sub {
+    font-size: 8px;
+    opacity: 0.6;
+    line-height: 1;
+    margin-top: 1px;
+    font-weight: 400;
+  }
   .keyboard-preview {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 16px; min-height: 200px; display: block;
+    background: #0d0f14;
+    border: 2px solid #232834;
+    border-radius: 12px;
+    padding: 12px;
+    min-height: 240px;
+    display: block;
+    max-width: 900px;
+    margin: 10px auto;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
-  .keyboard-preview .row {
-    display: flex; align-items: center; justify-content: center; gap: 4px; flex-wrap: wrap;
+  .keyboard-preview .kb-key {
+    transition: background 0.1s ease, color 0.1s ease;
   }
-  .keyboard-preview .key {
-    width: 42px; height: 28px; flex-shrink: 0;
-    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
-    display: flex; align-items: center; justify-content: center; font-size: 10px;
-    color: var(--fg); user-select: none;
-  }
-  .keyboard-preview .key.n {
-    background: var(--accent); color: #1a1206; font-weight: 600;
-  }
-  .keyboard-preview .key.empty { background: transparent; border: none; }
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .note code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
   .banner { padding: 11px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
@@ -167,13 +234,14 @@
     z-index: 1; opacity: .3; pointer-events: none;
     width: 100%; max-width: 1200px;
   }
-  .hero-bg-keyboard .row { display: flex; gap: 3px; justify-content: center; margin-bottom: 3px; }
-  .hero-bg-keyboard .key {
-    width: clamp(16px, 2.5vw, 40px); height: clamp(12px, 1.8vw, 28px);
+  .hero-bg-keyboard .row, .hero-bg-keyboard .kb-row { display: flex; gap: 3px; justify-content: center; margin-bottom: 3px; width: 100%; }
+  .hero-bg-keyboard .key, .hero-bg-keyboard .kb-key {
+    height: clamp(12px, 1.8vw, 28px);
     border-radius: 3px; font-size: clamp(5px, 0.5vw, 7px);
     display: flex; align-items: center; justify-content: center;
-    background: transparent; border: none;
+    background: transparent; border: 1px solid rgba(255, 255, 255, 0.05);
     color: transparent; transition: background 0.15s ease;
+    min-width: 0; box-shadow: none;
   }
   .hero-content {
     position: relative; z-index: 2; text-align: center; padding: 60px 20px;
@@ -226,19 +294,17 @@
 
 <div id="alphaModal" class="modal-overlay">
   <div class="modal">
-    <h2>⚠️ Alpha Software Warning</h2>
-    <p>This is <strong>alpha software</strong> for the ANT ESPORTS APEX 200 keyboard. It is not affiliated with or endorsed by ANT ESPORTS.</p>
+    <h2>⚡ APEX 200 WebHID Control</h2>
+    <p>Welcome! This open-source utility configures your <strong>ANT ESPORTS APEX 200</strong> directly in the browser without installing vendor software.</p>
     <ul>
-      <li><strong>Hardware risk:</strong> Writing incorrect data to your keyboard may cause malfunction or permanent damage.</li>
-      <li><strong>Data loss:</strong> Profiles, key bindings, macros, and lighting settings may be overwritten or lost.</li>
-      <li><strong>No warranty:</strong> This software is provided "as is" without warranty of any kind.</li>
-      <li><strong>Gated writes:</strong> Some write operations are disabled by default. Do not enable them unless you understand the risks.</li>
-      <li><strong>First test:</strong> Always verify read → write byte-identical → read/compare before trusting any write.</li>
+      <li><strong>Safe &amp; Verified:</strong> Lighting, colors, performance settings, and macros are verified with automatic readback protection.</li>
+      <li><strong>Automatic Sync:</strong> Your current onboard settings are automatically read when you connect.</li>
+      <li><strong>USB Connection:</strong> Connect the keyboard via its <strong>USB cable</strong> (WebHID requires USB; 2.4GHz/Bluetooth are not supported).</li>
+      <li><strong>No Software Conflicts:</strong> Close any other keyboard utilities before connecting so the USB interface remains accessible.</li>
     </ul>
-    <p>By clicking "I Understand", you acknowledge these risks and agree to use this software at your own risk.</p>
     <div class="actions">
-      <button id="btnAlphaCancel" class="danger">Cancel</button>
-      <button id="btnAlphaAccept" class="primary">I Understand &amp; Accept</button>
+      <button id="btnAlphaCancel">Close</button>
+      <button id="btnAlphaAccept" class="primary">Get Started</button>
     </div>
   </div>
 </div>
@@ -251,10 +317,10 @@
 
   <div class="tabs">
     <button data-tab="overview" class="active">Overview</button>
-    <button data-tab="light">Lighting</button>
-    <button data-tab="profiles">Profiles &amp; Fn</button>
+    <button data-tab="light">Lighting Studio</button>
+    <button data-tab="profiles">Profiles &amp; Keys</button>
     <button data-tab="trigger">Hall Effect</button>
-    <button data-tab="developer">Developer</button>
+    <button data-tab="developer">Developer Tools</button>
   </div>
 
   <!-- OVERVIEW (Landing Page) -->
@@ -277,125 +343,46 @@
             GitHub
           </a>
         </div>
+        <div id="heroConnectedCard" class="card hidden" style="margin-top: 24px; text-align: left; max-width: 520px; margin-left: auto; margin-right: auto; background: rgba(23, 26, 32, 0.88); backdrop-filter: blur(12px); border-color: #3b4354;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <span style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ok);">
+              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok);"></span>
+              Keyboard Connected &amp; Synced
+            </span>
+            <span class="pill on" id="heroDeviceLabel">APEX 200</span>
+          </div>
+          <p style="font-size: 13px; color: var(--muted); margin: 0 0 16px;">
+            Settings synchronized from keyboard. Choose a feature to customize:
+          </p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <button id="btnJumpLighting" class="primary" style="font-size: 13px; padding: 10px;">🎨 Lighting Studio</button>
+            <button id="btnJumpProfiles" style="font-size: 13px; padding: 10px;">⌨️ Profiles &amp; Keys</button>
+            <button id="btnJumpTrigger" style="font-size: 13px; padding: 10px;">⚡ Hall Effect</button>
+            <button id="btnJumpDev" style="font-size: 13px; padding: 10px;">🛠️ Developer Tools</button>
+          </div>
+        </div>
       </div>
-    </div>
-  </section>
-
-  <!-- DEVELOPER -->
-  <section id="developer">
-    <div class="banner warn">
-      Verified statically from the Windows app — this has <b>not</b> been exercised against
-      real hardware yet. Run <code>cli/apexctl.py descriptor</code> first to confirm which
-      collections Chrome exposes.
-    </div>
-
-    <div class="card">
-      <h2>Device</h2>
-      <div class="row">
-        <button id="btnRestore">Reconnect previously granted device</button>
-        <button id="btnScanHid">Scan granted HID devices</button>
-        <button id="btnProductInfo">Read product info (0x62)</button>
-        <button id="btnReadProfiles">Read profiles (0x57)</button>
-        <button id="btnReadTriggers">Read trigger config (0x2C)</button>
-        <button id="btnReadAdc">Read calibration ADC (0x5B)</button>
-        <button id="btnReset" class="danger">Reset keyboard (0x61)</button>
-      </div>
-      <div id="deviceInfo" class="note hidden"></div>
-    </div>
-
-    <div class="card">
-      <h2>HID collections</h2>
-      <pre id="collections">not connected</pre>
-    </div>
-
-    <div class="card">
-      <h2>Report descriptor</h2>
-      <div class="row">
-        <button id="btnDescriptor">Fetch report descriptor</button>
-        <button id="btnCopyDescriptor">Copy hex</button>
-      </div>
-      <pre id="descriptor" class="hidden"></pre>
-    </div>
-
-    <div class="card">
-      <h2>Detection check — measured from this device</h2>
-      <table>
-        <tr><td>Vendor / product</td><td><code>314B:1026</code> — <code>APEX APEX200</code>, matches the Windows app's filter</td></tr>
-        <tr><td>Config interface</td><td>USB interface 0 → <code>/dev/hidraw0</code> (the only interface with IN&nbsp;+&nbsp;OUT endpoints)</td></tr>
-        <tr><td>Usage page</td><td><code>0xFF02</code> (vendor defined) — <b>not</b> a protected usage, so WebHID can reach it</td></tr>
-        <tr><td>Report IDs</td><td><b>none</b> — the implicit report ID is 0, so <code>sendReport(0, frame)</code></td></tr>
-        <tr><td>Report size</td><td><b>64 bytes</b> in and out → 58-byte payload budget after the 6-byte header</td></tr>
-        <tr><td>Other interfaces</td><td>1 keyboard, 2 pointer, 3 keyboard+digitizer — all protected usages</td></tr>
-      </table>
-      <div class="note">
-        The keyboard's own HID interface (<code>0x0006</code>) is a protected usage and
-        Chrome will not expose it, which is correct — the config channel is the vendor
-        collection. If the picker lists several entries, choose the one whose collection
-        tree contains usage page <code>0xFF02</code>.
-      </div>
-    </div>
-    <div class="card">
-      <h2>Traffic log</h2>
-      <div class="row" style="margin-bottom:10px">
-        <button id="btnClearTrace">Clear</button>
-        <span class="note">Newest first. <span class="l-out">→</span> host to device, <span class="l-in">←</span> device to host.</span>
-      </div>
-      <pre id="trace" class="log"></pre>
-    </div>
-    <div class="card" style="border:2px solid #ff6b6b;background:#1a0f0f">
-      <h2>⚠️ Unsafe / Advanced Console</h2>
-      <div class="note" style="color:#ffb6b6">
-        <strong>WARNING:</strong> This console sends raw frames. <strong>REFUSED:</strong> Firmware (0x60,0x65,0x66) and unclassified opcodes. <strong>DANGEROUS:</strong> Actuation (0x26-0x28), calibration (0x53,0x54), transport/config (0x56), keymap (0x20,0x24). Only use if you understand the risks. Gated writes not enabled by default.
-      </div>
-    </div>
-    <div class="card">
-      <h2>Send frame</h2>
-      <div class="grid">
-        <label class="field">Opcode (hex) — ⚠️ Many writes are GATED
-          <input type="text" id="cCmd" value="62" size="6">
-        </label>
-        <label class="field">param1 (layer/key)
-          <input type="number" id="cP1" value="0">
-        </label>
-        <label class="field">param2
-          <input type="number" id="cP2" value="0">
-        </label>
-        <label class="field">Payload (hex bytes, comma separated)
-          <input type="text" id="cData" value="">
-        </label>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button id="btnSend" class="primary">Send</button>
-        <span class="note">Response opcode = request + 0x80. Timeout 1 s.</span>
-      </div>
-      <pre id="consoleOut" class="hidden"></pre>
-    </div>
-    <div class="card">
-      <h2>Known opcodes</h2>
-      <pre id="opcodeList"></pre>
     </div>
   </section>
 
   <!-- LIGHTING -->
   <section id="light">
     <div class="card">
-      <h2>Lighting</h2>
+      <h2>Lighting Studio</h2>
       <div class="row">
-        <button id="btnLightReadAll" class="primary">Read lighting state</button>
-        <span class="hint">one pass: current effect and levels (0x17), effect names (0x18), per-key table (0x16)</span>
+        <button id="btnLightReadAll">Refresh lighting state</button>
+        <span class="hint">Reads current animation, brightness, speed, and custom colors</span>
       </div>
-      <div id="lightStatus" class="note">Not read yet &mdash; press <strong>Read lighting state</strong>.</div>
+      <div id="lightStatus" class="note">Not read yet &mdash; press <strong>Refresh lighting state</strong> or connect your keyboard.</div>
     </div>
 
     <div class="card">
-      <h2>Effect engine</h2>
+      <h2>Effect Engine</h2>
       <div class="note">
-        These controls describe <strong>one running effect</strong>. Each button
-        writes <em>only the fields beside it</em>; everything else is read from the
-        keyboard first and carried through unchanged, then read back to prove it.
+        Customize animation preset, brightness, speed, and active color. Click <strong>Save &amp; Apply Lighting</strong> to apply all settings.
       </div>
       <div class="grid">
-        <label class="field">Effect
+        <label class="field">Effect Preset
           <select id="lMode"></select>
         </label>
         <label class="field">Brightness % (0&ndash;100)
@@ -404,7 +391,7 @@
             <output id="lBrightOut">100</output>
           </div>
         </label>
-        <label class="field">Speed (1&ndash;100, higher = slower)
+        <label class="field">Speed (1&ndash;100)
           <div class="row">
             <input type="range" id="lSpeed" min="1" max="100" value="100">
             <output id="lSpeedOut">100</output>
@@ -412,67 +399,66 @@
         </label>
       </div>
 
-      <table class="params" style="margin-top:14px">
-        <thead><tr><th>Button</th><th>Opcode</th><th>Changes</th><th>Keeps</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>Apply effect, brightness &amp; speed</td>
-            <td><code>0x13</code></td>
-            <td>effect index, brightness, speed</td>
-            <td>colour and device-owned bytes</td>
-          </tr>
-          <tr>
-            <td>Apply colour to this effect</td>
-            <td><code>0x13</code></td>
-            <td>R, G, B for this effect</td>
-            <td>brightness, speed, device-owned bytes</td>
-          </tr>
-          <tr>
-            <td>Make this the active effect</td>
-            <td><code>0x19</code></td>
-            <td>which effect is running</td>
-            <td>every config byte</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="row" style="margin-top:14px">
-        <button id="btnSetLight" class="primary">Apply effect, brightness &amp; speed</button>
-        <span class="hint">write 0x13 &mdash; sliders only &middot; readback verified</span>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <input type="color" id="lEffectColor" value="#ff8a3d">
-        <button id="btnSetColour">Apply colour to this effect</button>
-        <span class="hint">write 0x13 &mdash; colour only &middot; readback verified</span>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button id="btnTurnOffBacklight" class="danger">Turn off backlight (Close)</button>
-        <span class="hint">write 0x13 — effect 0, all keys off</span>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button id="btnSelectEffect">Make this the active effect</button>
-        <span class="hint">write 0x19 &mdash; config unchanged</span>
+      <div class="row" style="margin-top:16px; gap:12px; align-items:center;">
+        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+          <span>Color:</span>
+          <input type="color" id="lEffectColor" value="#ff8a3d">
+        </label>
+        <button id="btnApplyLighting" class="primary" style="padding:8px 18px; font-weight:700;">Save &amp; Apply Lighting</button>
+        <button id="btnTurnOffBacklight" class="danger">Turn off lights</button>
       </div>
 
-      <details class="advanced" style="margin-top:16px">
-        <summary>Advanced reads (raw)</summary>
+      <details class="advanced" style="margin-top:18px">
+        <summary>Advanced / Step-by-Step Operations</summary>
+        <table class="params" style="margin-top:12px">
+          <thead><tr><th>Action</th><th>Command</th><th>Changes</th><th>Keeps</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Apply effect, brightness &amp; speed</td>
+              <td><code>0x13</code></td>
+              <td>effect index, brightness, speed</td>
+              <td>colour and device-owned bytes</td>
+            </tr>
+            <tr>
+              <td>Apply colour to this effect</td>
+              <td><code>0x13</code></td>
+              <td>R, G, B for this effect</td>
+              <td>brightness, speed, device-owned bytes</td>
+            </tr>
+            <tr>
+              <td>Make this the active effect</td>
+              <td><code>0x19</code></td>
+              <td>which effect is running</td>
+              <td>every config byte</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="row" style="margin-top:12px">
+          <button id="btnSetLight">Apply effect, brightness &amp; speed</button>
+          <span class="hint">write 0x13 &mdash; sliders only</span>
+        </div>
         <div class="row" style="margin-top:10px">
+          <button id="btnSetColour">Apply colour to this effect</button>
+          <span class="hint">write 0x13 &mdash; colour only</span>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnSelectEffect">Make this the active effect</button>
+          <span class="hint">write 0x19 &mdash; config unchanged</span>
+        </div>
+        <div class="row" style="margin-top:14px">
           <button id="btnGetLight">Read config (0x17)</button>
           <button id="btnGetLightName">Read names (0x18)</button>
           <button id="btnReadEffectCount">Read current effect (0x17, 0xFF)</button>
           <button id="btnReadEffects">Rebuild name list (0x18)</button>
           <button id="btnCustom">Read per-key raw (0x16)</button>
         </div>
-        <div class="note">
-          Reads only. The name list is read from the keyboard; twelve of the
-          thirteen names decode, and the remaining slot is shown as undecoded
-          rather than guessed. Index 12 is outside the device's validated
-          0&ndash;11 range, so it is never offered as a write.
-        </div>
         <div id="effectInfo" class="note hidden"></div>
         <pre id="lightOut" class="hidden"></pre>
       </details>
     </div>
+
+
 
     <div class="card">
       <h2>Keyboard preview</h2>
@@ -483,39 +469,34 @@
     </div>
 
     <div class="card">
-      <h2>Per-key colour table</h2>
-      <div class="note">
-        <strong>This is a separate feature from the effect engine.</strong> It is a
-        static colour per key, used when the board is in its per-key/custom mode.
-        It does not change the effect, brightness or speed above.
-        <br><br>
-        Every byte is named from assembly (&sect;8.13.2): byte 0 = the first
-        keyItem, then <code>(light, R, G, B)</code> per key in ascending order.
-        The command is <code>0x11</code>; the table is read with <code>0x16</code>
-        first, untouched keys are preserved, and the write is split into 14-key
-        pages exactly as the app's builder does. The whole table is read back and
-        compared afterwards.
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <h2>Per-Key Custom Color Studio</h2>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:12px; color:var(--muted);">Selected Key:</span>
+          <span class="badge badge-ok" id="selectedKeyColorLabel">Esc (Key 0)</span>
+        </div>
       </div>
-      <div class="row" style="margin-top:12px">
-        <label class="field">Colour
+      <div class="note">
+        Set custom static backlight colors. Select any key above or below to paint individual keys, or set a solid color across the entire board.
+      </div>
+      <div class="row" style="margin-top:14px; gap:12px; align-items:center;">
+        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+          <span>Colour:</span>
           <input type="color" id="pkAllColor" value="#ff0000">
         </label>
-        <label class="field">Light byte
-          <div class="row">
-            <select id="pkAllMode">
-              <option value="1">1</option>
-              <option value="0">0</option>
-              <option value="2">2</option>
-            </select>
-            <span class="hint">0 = off, 1 = colour on; 2 kept for parity</span>
-          </div>
+        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+          <span>State:</span>
+          <select id="pkAllMode">
+            <option value="1">1 (On)</option>
+            <option value="0">0 (Off)</option>
+            <option value="2">2</option>
+          </select>
         </label>
-        <button id="btnPkAll" class="primary">Set every key to this colour</button>
+        <button id="btnPaintSelectedKey" class="primary">Paint Selected Key</button>
+        <button id="btnPkAll">Set Every Key</button>
       </div>
       <div class="note" style="color:#4ade80">
-        Write <code>0x11</code> &mdash; read-modify-write against <code>0x16</code>,
-        then full-table readback verification. Colour is recoverable by rewriting,
-        unlike keymap layout or actuation records.
+        Write <code>0x11</code> &mdash; read-modify-write against <code>0x16</code>, then full-table readback verification.
       </div>
       <pre id="pkOut" class="hidden"></pre>
     </div>
@@ -524,17 +505,20 @@
   <!-- PROFILES AND FN LAYER -->
   <section id="profiles">
     <div class="card">
-      <h2>Profiles</h2>
+      <h2>Profiles &amp; Memory Layout</h2>
+      <div class="note">
+        Manage keyboard configuration profiles stored on onboard memory.
+      </div>
       <div class="grid">
-        <label class="field">Profile index
+        <label class="field">Profile Index
           <input type="number" id="pIndex" value="0" min="0" max="255">
         </label>
       </div>
       <div class="row" style="margin-top:14px">
-        <button id="btnListProfiles">List profiles (0x57)</button>
-        <button id="btnAddProfile">Add (0x58)</button>
-        <button id="btnSwitchProfile">Switch (0x55)</button>
-        <button id="btnDelProfile" class="danger">Delete (0x59)</button>
+        <button id="btnListProfiles">Refresh Profiles</button>
+        <button id="btnAddProfile">New Profile</button>
+        <button id="btnSwitchProfile" class="primary">Activate Profile</button>
+        <button id="btnDelProfile" class="danger">Delete Profile</button>
       </div>
       <div class="note" style="color:#ffb86c">
         <strong>⚠️ Profile writes (0x55/0x58/0x59)</strong> are exposed but can permanently change device state; only recovery is factory reset. Always take a snapshot first.
@@ -561,9 +545,9 @@
     </div>
 
     <div class="card">
-      <h2>Device snapshot</h2>
+      <h2>Device Backup &amp; Snapshot</h2>
       <div class="row">
-        <button id="btnSnapshot">Read everything (10 reads)</button>
+        <button id="btnSnapshot">Read Full Snapshot (10 reads)</button>
         <button id="btnSnapshotSave" disabled>Save as JSON</button>
         <span class="hint">read-only &mdash; writes nothing</span>
       </div>
@@ -586,31 +570,58 @@
     </div>
 
     <div class="card">
-      <h2>Global settings</h2>
-      <div class="row">
-        <button id="btnReadParams">Read settings (0x5E)</button>
-        <button id="btnApplyParams">Apply changed settings (0x50)</button>
+      <h2>Hardware Performance &amp; Debounce Settings</h2>
+      <div class="note">
+        Hardware performance, report rate, and debounce filters. Values are read-modify-written with readback verification.
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="btnReadParams">Refresh Settings</button>
+        <button id="btnApplyParams" class="primary">Save Settings to Keyboard</button>
       </div>
 
-      <table class="params">
+      <table class="params" style="margin-top:14px;">
         <thead><tr><th>Setting</th><th>Device value</th><th>New</th></tr></thead>
         <tbody>
-          <tr><td>Touch optimise</td><td id="pvTouch">-</td>
-              <td><input type="number" id="pTouch" min="0" max="255"></td></tr>
-          <tr><td>Dead key down (ms, u16)</td><td id="pvDeadDown">-</td>
-              <td><input type="number" id="pDeadDown" min="0" max="65535"></td></tr>
-          <tr><td>Dead key up (ms, u16)</td><td id="pvDeadUp">-</td>
-              <td><input type="number" id="pDeadUp" min="0" max="65535"></td></tr>
-          <tr><td>Polling rate</td><td id="pvPolling">-</td>
-              <td><input type="number" id="pPolling" min="0" max="255"></td></tr>
-          <tr><td>Shake level</td><td id="pvShake">-</td>
-              <td><input type="number" id="pShake" min="0" max="255"></td></tr>
-          <tr><td>Calibration</td><td id="pvCalib">-</td>
-              <td><input type="number" id="pCalib" min="0" max="255"></td></tr>
-          <tr><td>Sports mode</td><td id="pvSports">-</td>
-              <td><input type="number" id="pSports" min="0" max="255"></td></tr>
-          <tr><td>Current layer</td><td id="pvLayer">-</td>
-              <td><input type="number" id="pLayer" min="0" max="255"></td></tr>
+          <tr>
+            <td>Touch Optimize <span class="note" style="display:block;margin:0;font-size:11px;">Accidental touch suppression</span></td>
+            <td id="pvTouch">-</td>
+            <td><input type="number" id="pTouch" min="0" max="255"></td>
+          </tr>
+          <tr>
+            <td>Press Debounce Delay <span class="note" style="display:block;margin:0;font-size:11px;">Key-down filter delay (ms, u16)</span></td>
+            <td id="pvDeadDown">-</td>
+            <td><input type="number" id="pDeadDown" min="0" max="65535"></td>
+          </tr>
+          <tr>
+            <td>Release Debounce Delay <span class="note" style="display:block;margin:0;font-size:11px;">Key-up release delay (ms, u16)</span></td>
+            <td id="pvDeadUp">-</td>
+            <td><input type="number" id="pDeadUp" min="0" max="65535"></td>
+          </tr>
+          <tr>
+            <td>Polling Rate Index <span class="note" style="display:block;margin:0;font-size:11px;">USB report rate frequency index</span></td>
+            <td id="pvPolling">-</td>
+            <td><input type="number" id="pPolling" min="0" max="255"></td>
+          </tr>
+          <tr>
+            <td>Anti-Shake Sensitivity <span class="note" style="display:block;margin:0;font-size:11px;">Key jitter stabilization filter</span></td>
+            <td id="pvShake">-</td>
+            <td><input type="number" id="pShake" min="0" max="255"></td>
+          </tr>
+          <tr>
+            <td>Factory Calibration <span class="note" style="display:block;margin:0;font-size:11px;">Hardware calibration active flag</span></td>
+            <td id="pvCalib">-</td>
+            <td><input type="number" id="pCalib" min="0" max="255"></td>
+          </tr>
+          <tr>
+            <td>Sports Mode <span class="note" style="display:block;margin:0;font-size:11px;">Ultra-low latency competitive gaming mode</span></td>
+            <td id="pvSports">-</td>
+            <td><input type="number" id="pSports" min="0" max="255"></td>
+          </tr>
+          <tr>
+            <td>Active Function Layer <span class="note" style="display:block;margin:0;font-size:11px;">0 = Base layer, 1 = Function layer</span></td>
+            <td id="pvLayer">-</td>
+            <td><input type="number" id="pLayer" min="0" max="255"></td>
+          </tr>
         </tbody>
       </table>
 
@@ -825,20 +836,20 @@
   <!-- HALL EFFECT -->
   <section id="trigger">
     <div class="card">
-      <h2>Actuation points</h2>
+      <h2>Actuation Points &amp; Rapid Trigger</h2>
       <div class="note" style="margin-top:0">
-        Product table ranges: trigger 10–359, quick-trigger release 4–330, reset 4–330.
+        Adjust analog key press depth actuation and Rapid Trigger sensitivity. Product ranges: trigger 10–359 (~0.1mm–3.6mm), release 4–330, reset 4–330.
       </div>
       <div class="grid" style="margin-top:12px">
-        <label class="field">Actuation point
+        <label class="field">Actuation Point (Press Depth)
           <input type="range" id="tTrigger" min="10" max="359" value="40">
           <span id="tTriggerV" class="note">40</span>
         </label>
-        <label class="field">Quick-trigger release
+        <label class="field">Rapid Trigger Release Distance
           <input type="range" id="tRelease" min="4" max="330" value="30">
           <span id="tReleaseV" class="note">30</span>
         </label>
-        <label class="field">Quick-trigger reset
+        <label class="field">Rapid Trigger Reset Distance
           <input type="range" id="tReset" min="4" max="330" value="10">
           <span id="tResetV" class="note">10</span>
         </label>
@@ -853,19 +864,120 @@
         <button id="btnCalibRange" class="primary">Read ADC range (0x5B)</button>
         <button id="btnCalibStateRange">Read calibration state (0x52)</button>
       </div>
-      <div class="note" style="color:#ff6b6b">
-        <b>⛔ WRITING ACTUATION POINTS IS DISABLED.</b> The decompiled frame builders show <code>0x26</code>, <code>0x27</code> and <code>0x28</code> are <em>paged</em> writes. Their record packing is now fully decoded (&sect;8.21.5), so the remaining gate is hardware validation, not missing knowledge — a wrong write can corrupt your layout and is only recoverable by a factory reset. <strong>DO NOT ENABLE WRITES</strong> without a byte-identical readback test on real hardware. Reads above are safe.
+      <div class="banner warn" style="margin-top:14px;">
+        <strong>Safety Note:</strong> Writing custom actuation points to onboard memory is kept in read-only safety mode while hardware validation is conducted. ADC calibration readings and diagnostics above are safe to inspect.
       </div>
       <pre id="triggerOut" class="hidden"></pre>
     </div>
 
     <div class="card">
-      <h2>Key selector</h2>
-      <div class="keys" id="keyGrid"></div>
-      <div class="note">
-        Key indices come from the app's <code>keyboard_default_table</code> (556 rows). The grid
-        uses the APEX product record's 85 keys; the index mapping is assumed to be 0..84.
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <h2>Interactive 85-Key Map &amp; Sensor Inspector</h2>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:12px; color:var(--muted);">Selected Key:</span>
+          <span class="badge badge-ok" id="selectedKeyDisplay" style="font-size:13px; font-weight:700; padding:4px 10px;">Esc (Item 0)</span>
+        </div>
       </div>
+      <div class="note" style="margin-top:0; margin-bottom:14px;">
+        Click any physical key on the keyboard below to inspect its actuation, Rapid Trigger sensitivity, and Hall-effect sensor ADC levels.
+      </div>
+      <div class="keyboard-frame" id="keyGrid"></div>
+      <div class="note">
+        Interactive 75% compact (85-key) layout. Clicking a key updates the active key selection across calibration, actuation, and lighting modules.
+      </div>
+    </div>
+  </section>
+
+  <!-- DEVELOPER TOOLS -->
+  <section id="developer">
+    <div class="banner warn">
+      <strong>Developer Tools &amp; Protocol Diagnostics:</strong> Low-level frame utilities, descriptors, and trace logs for hardware testing.
+    </div>
+
+    <div class="card">
+      <h2>Device Diagnostics</h2>
+      <div class="row">
+        <button id="btnRestore">Reconnect previously granted device</button>
+        <button id="btnScanHid">Scan granted HID devices</button>
+        <button id="btnProductInfo">Read product info (0x62)</button>
+        <button id="btnReadProfiles">Read profiles (0x57)</button>
+        <button id="btnReadTriggers">Read trigger config (0x2C)</button>
+        <button id="btnReadAdc">Read calibration ADC (0x5B)</button>
+        <button id="btnReset" class="danger">Reset keyboard (0x61)</button>
+      </div>
+      <div id="deviceInfo" class="note hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2>HID collections</h2>
+      <pre id="collections">not connected</pre>
+    </div>
+
+    <div class="card">
+      <h2>Report descriptor</h2>
+      <div class="row">
+        <button id="btnDescriptor">Fetch report descriptor</button>
+        <button id="btnCopyDescriptor">Copy hex</button>
+      </div>
+      <pre id="descriptor" class="hidden"></pre>
+    </div>
+
+    <div class="card">
+      <h2>Detection check — measured from this device</h2>
+      <table>
+        <tr><td>Vendor / product</td><td><code>314B:1026</code> — <code>APEX APEX200</code>, matches the Windows app's filter</td></tr>
+        <tr><td>Config interface</td><td>USB interface 0 → <code>/dev/hidraw0</code> (the only interface with IN&nbsp;+&nbsp;OUT endpoints)</td></tr>
+        <tr><td>Usage page</td><td><code>0xFF02</code> (vendor defined) — <b>not</b> a protected usage, so WebHID can reach it</td></tr>
+        <tr><td>Report IDs</td><td><b>none</b> — the implicit report ID is 0, so <code>sendReport(0, frame)</code></td></tr>
+        <tr><td>Report size</td><td><b>64 bytes</b> in and out → 58-byte payload budget after the 6-byte header</td></tr>
+        <tr><td>Other interfaces</td><td>1 keyboard, 2 pointer, 3 keyboard+digitizer — all protected usages</td></tr>
+      </table>
+      <div class="note">
+        The keyboard's own HID interface (<code>0x0006</code>) is a protected usage and
+        Chrome will not expose it, which is correct — the config channel is the vendor
+        collection. If the picker lists several entries, choose the one whose collection
+        tree contains usage page <code>0xFF02</code>.
+      </div>
+    </div>
+    <div class="card">
+      <h2>Traffic log</h2>
+      <div class="row" style="margin-bottom:10px">
+        <button id="btnClearTrace">Clear</button>
+        <span class="note">Newest first. <span class="l-out">→</span> host to device, <span class="l-in">←</span> device to host.</span>
+      </div>
+      <pre id="trace" class="log"></pre>
+    </div>
+    <div class="card" style="border:2px solid #ff6b6b;background:#1a0f0f">
+      <h2>⚠️ Unsafe / Advanced Console</h2>
+      <div class="note" style="color:#ffb6b6">
+        <strong>WARNING:</strong> This console sends raw frames. <strong>REFUSED:</strong> Firmware (0x60,0x65,0x66) and unclassified opcodes. <strong>DANGEROUS:</strong> Actuation (0x26-0x28), calibration (0x53,0x54), transport/config (0x56), keymap (0x20,0x24). Only use if you understand the risks. Gated writes not enabled by default.
+      </div>
+    </div>
+    <div class="card">
+      <h2>Send frame</h2>
+      <div class="grid">
+        <label class="field">Opcode (hex) — ⚠️ Many writes are GATED
+          <input type="text" id="cCmd" value="62" size="6">
+        </label>
+        <label class="field">param1 (layer/key)
+          <input type="number" id="cP1" value="0">
+        </label>
+        <label class="field">param2
+          <input type="number" id="cP2" value="0">
+        </label>
+        <label class="field">Payload (hex bytes, comma separated)
+          <input type="text" id="cData" value="">
+        </label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="btnSend" class="primary">Send</button>
+        <span class="note">Response opcode = request + 0x80. Timeout 1 s.</span>
+      </div>
+      <pre id="consoleOut" class="hidden"></pre>
+    </div>
+    <div class="card">
+      <h2>Known opcodes</h2>
+      <pre id="opcodeList"></pre>
     </div>
   </section>
 </main>

@@ -251,8 +251,8 @@ def describe_report_descriptor(data: bytes) -> list[str]:
             i += 3 + data[i + 1]
             continue
         size_idx = b & 0x03
-        ln = 4 if size_idx == 3 else size_idx + 1
-        val = int.from_bytes(data[i + 1:i + ln], "little") if ln > 1 else 0
+        data_len = {0: 0, 1: 1, 2: 2, 3: 4}[size_idx]
+        val = int.from_bytes(data[i + 1:i + 1 + data_len], "little") if data_len > 0 else 0
         typ = (b >> 2) & 0x03
         tag = b & 0xF0
         pad = "  " * depth
@@ -296,7 +296,7 @@ def describe_report_descriptor(data: bytes) -> list[str]:
                 out.append(f"{pad}UsageMax = 0x{val:04X}")
             else:
                 out.append(f"{pad}Local 0x{tag:02X} = {val}")
-        i += ln
+        i += 1 + data_len
 
     if lens:
         out.append("  -- report byte lengths --")
@@ -512,7 +512,8 @@ def cmd_send(args):
         return 2
 
     with _open(args) as dev:
-        frame = build_frame(op, b"", args.p1, args.p2)
+        payload = b"\x5a\xa5" if op == 0x61 else b""
+        frame = build_frame(op, payload, args.p1, args.p2)
         print(f"--> 0x{op:02X} {opcode_name(op)}  ({cls})")
         print("    " + " ".join(f"{b:02x}" for b in frame[:16]) + " ...")
         n = dev.write(frame)
