@@ -165,6 +165,8 @@ function setConnected(on) {
   $('#btnDisconnect').classList.toggle('hidden', !on);
   const heroCard = $('#heroConnectedCard');
   if (heroCard) heroCard.classList.toggle('hidden', !on);
+  const heroDisc = $('#heroDisconnectedCard');
+  if (heroDisc) heroDisc.classList.toggle('hidden', on);
   const heroConnect = $('#btnHeroConnect');
   if (heroConnect) heroConnect.classList.toggle('hidden', on);
 }
@@ -1914,12 +1916,7 @@ $('#btnClearTrace').addEventListener('click', () => { $('#trace').innerHTML = ''
 const alphaModal = $('#alphaModal');
 const alphaAccepted = localStorage.getItem('apex-alpha-accepted');
 
-if (!alphaAccepted && window.self === window.top) {
-  // Show modal on first visit (not in iframe/test environment)
-  alphaModal.style.display = 'flex';
-} else {
-  alphaModal.style.display = 'none';
-}
+alphaModal.style.display = 'none';
 
 $('#btnAlphaAccept').addEventListener('click', () => {
   localStorage.setItem('apex-alpha-accepted', '1');

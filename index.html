@@ -3,71 +3,137 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>APEX 200 Control</title>
+<title>ANT ESPORTS APEX 200 Control</title>
 <style>
   :root {
-    --bg: #101216; --panel: #171a20; --panel2: #1e222a; --line: #2a2f3a;
-    --fg: #e6e9ef; --muted: #9aa3b2; --accent: #ff8a3d; --ok: #4ade80;
-    --warn: #fbbf24; --err: #f87171;
+    --bg: #0a0c10;
+    --panel: #121520;
+    --panel-border: #1e2436;
+    --panel2: #181d2c;
+    --panel3: #20273a;
+    --line: #22293d;
+    --line-light: #2e3852;
+    --fg: #f1f5f9;
+    --muted: #8e9bb2;
+    --accent: #ff6a2a;
+    --accent-hover: #ff7e42;
+    --accent-glow: rgba(255, 106, 42, 0.35);
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --err: #ef4444;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
-    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", system-ui, sans-serif;
+    min-height: 100vh;
   }
-  header {
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
-    position: sticky; top: 0; z-index: 10;
+  /* Header / Titlebar */
+  header.app-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding: 12px 24px; border-bottom: 1px solid var(--line); background: rgba(18, 21, 32, 0.94);
+    backdrop-filter: blur(14px); position: sticky; top: 0; z-index: 50;
   }
-  h1 { font-size: 16px; margin: 0; letter-spacing: .02em; }
-  h1 span { color: var(--accent); }
-  .spacer { flex: 1; }
-  .pill {
-    font-size: 12px; padding: 3px 10px; border-radius: 999px;
-    border: 1px solid var(--line); color: var(--muted); background: var(--panel2);
+  .app-brand { display: flex; align-items: center; gap: 10px; }
+  .logo-mark {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, #ff6a2a, #ff9248);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800; color: #fff;
+    box-shadow: 0 0 16px rgba(255, 106, 42, 0.4);
   }
-  .pill.on { color: var(--ok); border-color: #235c3a; background: #12251b; }
-  .pill.bad { color: var(--err); border-color: #5c2323; background: #251212; }
-  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
-  .tabs { display: flex; gap: 4px; margin-bottom: 18px; flex-wrap: wrap; }
+  .brand-text { display: flex; flex-direction: column; }
+  .brand-name { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+  .model-name { font-size: 15px; font-weight: 800; letter-spacing: -.02em; color: #fff; line-height: 1.1; }
+  .model-name span { color: var(--accent); }
+  
+  /* Tabs - Segmented Pill Bar */
+  .tabs {
+    display: flex; gap: 4px; background: rgba(10, 12, 18, 0.7);
+    padding: 4px; border-radius: 10px; border: 1px solid var(--line);
+  }
   .tabs button {
     background: transparent; color: var(--muted); border: 1px solid transparent;
     padding: 7px 14px; border-radius: 7px; cursor: pointer; font: inherit;
+    font-size: 13px; font-weight: 600; transition: all .15s ease;
   }
-  .tabs button:hover { color: var(--fg); }
-  .tabs button.active { background: var(--panel2); color: var(--fg); border-color: var(--line); }
+  .tabs button:hover { color: var(--fg); background: rgba(255, 255, 255, 0.04); }
+  .tabs button.active {
+    background: var(--panel2); color: #fff; border-color: var(--line-light);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+  .pill {
+    font-size: 12px; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); background: var(--panel2);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill.on { color: var(--ok); border-color: #235c3a; background: #12251b; }
+  .pill.bad { color: var(--err); border-color: #5c2323; background: #251212; }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.on .dot { box-shadow: 0 0 8px var(--ok); }
+
+  main { padding: 20px 24px; max-width: 1280px; margin: 0 auto; }
   section { display: none; }
-  section.active { display: block; }
+  section.active { display: block; animation: fadeIn .18s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
   .card {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-    padding: 16px 18px; margin-bottom: 14px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 6px 20px rgba(0,0,0,0.3);
   }
-  .card h2 { font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .card h2 {
+    font-size: 13px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--fg); font-weight: 700; display: flex; align-items: center; gap: 8px;
+  }
   button, select, input[type=number], input[type=text] {
     background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
-    border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer;
+    border-radius: 8px; padding: 8px 13px; font: inherit; cursor: pointer;
+    transition: all .15s ease;
   }
   input[type=number], input[type=text] { cursor: text; }
-  button:hover:not(:disabled) { border-color: #3b4354; }
-  button.primary { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
-  button.primary:hover:not(:disabled) { filter: brightness(1.1); }
-  button.danger { background: #2f1818; color: #ff9999; border-color: #5c2828; }
-  button.danger:hover:not(:disabled) { background: #401f1f; border-color: #8c3b3b; color: #ffcccc; }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  .badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-  .badge-ok { background: #12251b; color: var(--ok); border: 1px solid #235c3a; }
+  button:hover:not(:disabled) { border-color: var(--line-light); background: var(--panel3); }
+  button.primary {
+    background: var(--accent); color: #160d04; border-color: var(--accent);
+    font-weight: 700; box-shadow: 0 2px 10px var(--accent-glow);
+  }
+  button.primary:hover:not(:disabled) {
+    background: var(--accent-hover); border-color: var(--accent-hover);
+    filter: brightness(1.08); box-shadow: 0 3px 14px rgba(255, 106, 42, 0.5);
+  }
+  button.danger { background: #2b1414; color: #fca5a5; border-color: #5c2424; font-weight: 600; }
+  button.danger:hover:not(:disabled) { background: #3b1b1b; border-color: #7f2e2e; color: #fee2e2; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .badge-ok { background: #12281c; color: var(--ok); border: 1px solid #1f5434; }
   .badge-warn { background: #2a2210; color: var(--warn); border: 1px solid #5c4a1f; }
-  .badge-info { background: #1a2332; color: #60a5fa; border: 1px solid #254065; }
-  details.advanced summary { cursor: pointer; color: var(--muted); font-size: 12px; user-select: none; }
+  .badge-info { background: #162234; color: #60a5fa; border: 1px solid #233c60; }
+
+  details.advanced { margin-top: 14px; background: rgba(0,0,0,0.2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  details.advanced summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; user-select: none; }
   details.advanced summary:hover { color: var(--fg); }
+
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-  label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+  label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
   label.field input, label.field select { color: var(--fg); }
-  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  /* Sliders */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
+    background: var(--panel3); border-radius: 999px; outline: none; accent-color: var(--accent);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; box-shadow: 0 0 10px rgba(255, 106, 42, 0.6);
+    border: 2px solid #fff; transition: transform .1s ease;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
   pre {
-    background: #0c0e12; border: 1px solid var(--line); border-radius: 8px;
+    background: #090b0e; border: 1px solid var(--line); border-radius: 8px;
     padding: 12px; overflow: auto; max-height: 420px; font-size: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0;
   }
@@ -76,231 +142,161 @@
   .l-out { color: var(--accent); }
   .l-err { color: var(--err); }
   .swatch { width: 46px; height: 26px; border-radius: 6px; border: 1px solid var(--line); }
-  .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px; }
-  .key {
-    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
-    padding: 8px 4px; text-align: center; cursor: pointer; font-size: 11px; user-select: none;
-  }
-  .key:hover { border-color: var(--accent); }
-  .key.sel { background: var(--accent); color: #1a1206; border-color: var(--accent); font-weight: 600; }
+
+  /* Physical Keyboard Frame & Keycaps */
   .keyboard-frame {
-    background: #0d0f14;
-    border: 2px solid #232834;
-    border-radius: 12px;
-    padding: 12px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    max-width: 900px;
+    background: #0b0d12;
+    border: 2px solid #202738;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    max-width: 920px;
     margin: 10px auto;
     user-select: none;
   }
   .kb-row {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 4px;
-    width: 100%;
+    display: flex; gap: 4px; margin-bottom: 4px; width: 100%;
   }
-  .kb-row:last-child {
-    margin-bottom: 0;
-  }
+  .kb-row:last-child { margin-bottom: 0; }
   .kb-key {
-    min-width: 0;
-    height: 38px;
-    background: #181c24;
-    border: 1px solid #282f3d;
-    border-radius: 5px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 600;
-    color: #e2e8f0;
-    cursor: pointer;
+    min-width: 0; height: 38px;
+    background: #161a25; border: 1px solid #252d3f; border-radius: 5px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; color: #e2e8f0; cursor: pointer;
     transition: all 0.12s ease;
-    box-shadow: 0 2px 0 #0c0e12;
-    position: relative;
-    user-select: none;
-    overflow: hidden;
+    box-shadow: 0 2px 0 #080a0f, inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    position: relative; user-select: none; overflow: hidden;
   }
   .kb-key:hover {
-    border-color: var(--accent);
-    transform: translateY(-1px);
-    box-shadow: 0 3px 0 #0c0e12, 0 0 10px rgba(255, 138, 61, 0.35);
-    z-index: 2;
+    border-color: var(--accent); transform: translateY(-1px);
+    box-shadow: 0 3px 0 #080a0f, 0 0 12px rgba(255, 106, 42, 0.35); z-index: 2;
   }
   .kb-key.sel {
-    background: var(--accent) !important;
-    color: #1a1206 !important;
-    border-color: #ffb380 !important;
-    font-weight: 700;
-    box-shadow: 0 0 14px rgba(255, 138, 61, 0.7) !important;
-    z-index: 3;
+    background: var(--accent) !important; color: #160d04 !important;
+    border-color: #ff9d66 !important; font-weight: 700;
+    box-shadow: 0 0 16px rgba(255, 106, 42, 0.75) !important; z-index: 3;
     transform: translateY(-1px);
   }
-  .kb-key .kb-sub {
-    font-size: 8px;
-    opacity: 0.6;
-    line-height: 1;
-    margin-top: 1px;
-    font-weight: 400;
-  }
+  .kb-key .kb-sub { font-size: 8px; opacity: 0.65; line-height: 1; margin-top: 1px; font-weight: 400; }
+
   .keyboard-preview {
-    background: #0d0f14;
-    border: 2px solid #232834;
-    border-radius: 12px;
-    padding: 12px;
-    min-height: 240px;
-    display: block;
-    max-width: 900px;
-    margin: 10px auto;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background: #0b0d12; border: 2px solid #202738; border-radius: 14px;
+    padding: 14px; min-height: 240px; display: block; max-width: 920px; margin: 10px auto;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
-  .keyboard-preview .kb-key {
-    transition: background 0.1s ease, color 0.1s ease;
+  .keyboard-preview .kb-key { transition: background 0.1s ease, color 0.1s ease; }
+
+  .hero-bg-keyboard {
+    background: #0b0d12; border: 2px solid #202738; border-radius: 14px; padding: 14px;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.55); max-width: 920px; margin: 0 auto 16px;
   }
+  .hero-bg-keyboard .kb-row { display: flex; gap: 4px; margin-bottom: 4px; width: 100%; }
+  .hero-bg-keyboard .kb-key {
+    height: 38px; border-radius: 5px; font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.08); transition: background 0.15s ease;
+    min-width: 0; box-shadow: 0 2px 0 #080a0f; color: #fff;
+  }
+
   .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
   .note code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
   .banner { padding: 11px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
   .banner.warn { background: #2a2210; border: 1px solid #5c4a1f; color: var(--warn); }
   .banner.err  { background: #251212; border: 1px solid #5c2323; color: var(--err); }
+
   #snapSummary { margin-top: 12px; font-size: 13px; }
-  #snapSummary .r { display: flex; justify-content: space-between; gap: 10px;
-                    padding: 3px 8px; border-bottom: 1px solid var(--line); }
+  #snapSummary .r { display: flex; justify-content: space-between; gap: 10px; padding: 3px 8px; border-bottom: 1px solid var(--line); }
   #snapSummary .r.bad { color: var(--err); }
   #snapSummary .r .k { color: var(--muted); }
   #snapSummary .r .v { font-variant-numeric: tabular-nums; }
+
   table.params { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
-  table.params th {
-    text-align: left; font-size: 11px; color: var(--muted); font-weight: 600;
-    padding: 4px 8px; text-transform: uppercase; letter-spacing: .04em;
-  }
-  table.params td { padding: 3px 8px; border-bottom: 1px solid var(--line); }
+  table.params th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; padding: 4px 8px; text-transform: uppercase; letter-spacing: .04em; }
+  table.params td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
   table.params td:first-child { color: var(--muted); width: 42%; }
-  table.params td:nth-child(2) {
-    font-variant-numeric: tabular-nums; width: 22%;
-    font-family: var(--mono, monospace);
-  }
+  table.params td:nth-child(2) { font-variant-numeric: tabular-nums; width: 22%; font-family: monospace; }
   table.params input { width: 100%; }
   table.params tr.changed td:nth-child(2) { color: var(--accent); }
+
   table.steps { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
-  table.steps th {
-    text-align: left; font-size: 11px; color: var(--muted); font-weight: 600;
-    padding: 4px 8px; text-transform: uppercase; letter-spacing: .04em;
-  }
-  table.steps td { padding: 3px 8px; border-bottom: 1px solid var(--line); }
+  table.steps th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; padding: 4px 8px; text-transform: uppercase; letter-spacing: .04em; }
+  table.steps td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
   table.steps select, table.steps input { width: 100%; }
   table.steps .idx { color: var(--muted); width: 28px; font-variant-numeric: tabular-nums; }
   table.steps .drop { width: 34px; }
   table.steps .drop button { padding: 3px 8px; font-size: 12px; }
   table.steps tr.from-device { background: #1d1a10; }
+
   .keymap { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 5px; margin-top: 12px; }
-  .keymap .k {
-    background: var(--panel2); border: 1px solid var(--line); border-radius: 5px;
-    padding: 5px 6px; font-size: 11px; display: flex; justify-content: space-between; gap: 6px;
-  }
+  .keymap .k { background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 5px 6px; font-size: 11px; display: flex; justify-content: space-between; gap: 6px; }
   .keymap .k .n { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .keymap .k .u { color: var(--muted); font-variant-numeric: tabular-nums; }
   .keymap .k.changed { border-color: var(--accent); }
-  .github-link {
-    color: var(--muted); display: flex; align-items: center; padding: 4px;
-    border-radius: 6px; transition: color .15s;
+
+  .github-link, .github-link-hero {
+    color: var(--muted); display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2);
+    font-size: 12px; transition: all .15s ease;
   }
-  .github-link:hover { color: var(--fg); }
-  .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100;
-    display: none; align-items: center; justify-content: center;
-  }
-  .modal {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-    padding: 24px; max-width: 480px; width: 90%;
-  }
-  .modal h2 { margin: 0 0 12px; color: var(--warn); }
+  .github-link:hover, .github-link-hero:hover { color: var(--fg); border-color: var(--line-light); background: var(--panel3); }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.75); backdrop-filter: blur(8px); z-index: 100; display: none; align-items: center; justify-content: center; }
+  .modal { background: var(--panel); border: 1px solid var(--line-light); border-radius: 14px; padding: 24px; max-width: 480px; width: 90%; box-shadow: 0 20px 50px rgba(0,0,0,0.6); }
+  .modal h2 { margin: 0 0 12px; color: var(--accent); }
   .modal p { font-size: 13px; line-height: 1.6; color: var(--muted); }
   .modal ul { font-size: 13px; color: var(--muted); padding-left: 20px; }
   .modal ul li { margin-bottom: 6px; }
-  .modal .actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+  .modal .actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
   .modal .actions button { padding: 8px 16px; }
   .hidden { display: none !important; }
-  .hero {
-    position: relative; overflow: visible; border-radius: 0; margin-bottom: 0;
-    background: radial-gradient(ellipse at 50% 0%, #1a1d24 0%, #0a0c10 70%);
-    border: none; min-height: 100vh;
-    display: flex; align-items: center; justify-content: center;
-    margin-left: -20px; margin-right: -20px;
-    width: calc(100% + 40px);
-  }
-  .hero-bg-keyboard {
-    position: absolute; bottom: -5%; left: 50%; transform: translateX(-50%);
-    z-index: 1; opacity: .3; pointer-events: none;
-    width: 100%; max-width: 1200px;
-  }
-  .hero-bg-keyboard .row, .hero-bg-keyboard .kb-row { display: flex; gap: 3px; justify-content: center; margin-bottom: 3px; width: 100%; }
-  .hero-bg-keyboard .key, .hero-bg-keyboard .kb-key {
-    height: clamp(12px, 1.8vw, 28px);
-    border-radius: 3px; font-size: clamp(5px, 0.5vw, 7px);
-    display: flex; align-items: center; justify-content: center;
-    background: transparent; border: 1px solid rgba(255, 255, 255, 0.05);
-    color: transparent; transition: background 0.15s ease;
-    min-width: 0; box-shadow: none;
-  }
-  .hero-content {
-    position: relative; z-index: 2; text-align: center; padding: 60px 20px;
-  }
-  .hero h1 { font-size: clamp(40px, 8vw, 80px); margin: 0 0 12px; letter-spacing: -.03em; font-weight: 800; line-height: 1; }
-  .hero h1 span { color: var(--accent); text-shadow: 0 0 60px rgba(255,138,61,.4); }
-  .hero-subtitle { font-size: 18px; color: var(--muted); margin: 0 0 20px; text-transform: uppercase; letter-spacing: .2em; font-weight: 500; }
-  .hero-desc { font-size: clamp(14px, 2vw, 18px); color: var(--fg); max-width: 640px; margin: 0 auto 32px; line-height: 1.6; opacity: .8; }
-  .hero-actions { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; }
-  .github-link-hero {
-    display: inline-flex; align-items: center; gap: 8px; color: var(--fg);
-    text-decoration: none; padding: 12px 20px; border: 1px solid var(--line);
-    border-radius: 10px; font-size: 14px; transition: all .2s;
-    background: rgba(30, 34, 42, 0.6); backdrop-filter: blur(10px);
-  }
-  .github-link-hero:hover { color: var(--fg); border-color: var(--accent); background: rgba(30, 34, 42, 0.8); }
-  .hero-glow {
-    position: absolute; width: 600px; height: 600px; border-radius: 50%;
-    background: radial-gradient(ellipse at 50% 40%, rgba(255,138,61,.08) 0%, transparent 60%);
-    inset: 0; z-index: 1; pointer-events: none;
-  }
-  @media (max-width: 768px) {
-    .hero-bg-keyboard {
-      transform: translateX(-50%) scale(0.7);
-      bottom: 2%;
-    }
-    .hero-content { padding: 40px 16px; }
-  }
-  @media (max-width: 480px) {
-    .hero-bg-keyboard {
-      transform: translateX(-50%) scale(0.5);
-    }
+
+  @media (max-width: 900px) {
+    header.app-header { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 16px; }
+    .tabs { overflow-x: auto; width: 100%; }
+    .header-actions { justify-content: space-between; }
   }
 </style>
 </head>
 <body>
-<header>
-  <h1>ANT ESPORTS <span>APEX 200</span> Control</h1>
-  <span class="pill" id="statusPill">disconnected</span>
-  <span class="pill" id="vendorPill">314B:1026</span>
-  <div class="spacer"></div>
-  <a href="https://github.com/Geckbags/apex-webhid" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
-    <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-    </svg>
-  </a>
-  <button id="btnConnect" class="primary">Connect keyboard</button>
-  <button id="btnDisconnect" class="hidden">Disconnect</button>
+<header class="app-header">
+  <div class="app-brand">
+    <div class="logo-mark">⚡</div>
+    <div class="brand-text">
+      <span class="brand-name">ANT ESPORTS</span>
+      <span class="model-name">APEX 200 <span>Suite</span></span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button data-tab="overview" class="active">📊 Dashboard</button>
+    <button data-tab="light">🎨 Lighting Studio</button>
+    <button data-tab="trigger">⚡ Performance</button>
+    <button data-tab="profiles">⌨️ Profiles &amp; Keys</button>
+    <button data-tab="developer">🛠️ Developer Tools</button>
+  </div>
+
+  <div class="header-actions">
+    <span class="pill" id="statusPill"><span class="dot"></span>disconnected</span>
+    <span class="pill" id="vendorPill">314B:1026</span>
+    <a href="https://github.com/Geckbags/apex-webhid" target="_blank" rel="noopener noreferrer" class="github-link" title="View on GitHub">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+      </svg>
+    </a>
+    <button id="btnConnect" class="primary">Connect Keyboard</button>
+    <button id="btnDisconnect" class="danger hidden">Disconnect</button>
+  </div>
 </header>
 
 <div id="alphaModal" class="modal-overlay">
   <div class="modal">
-    <h2>⚡ APEX 200 WebHID Control</h2>
-    <p>Welcome! This open-source utility configures your <strong>ANT ESPORTS APEX 200</strong> directly in the browser without installing vendor software.</p>
+    <h2>⚡ APEX 200 Configuration Suite</h2>
+    <p>Configure your <strong>ANT ESPORTS APEX 200</strong> directly in the browser without installing vendor software.</p>
     <ul>
-      <li><strong>Safe &amp; Verified:</strong> Lighting, colors, performance settings, and macros are verified with automatic readback protection.</li>
+      <li><strong>Hardware Verification:</strong> Lighting, colors, performance settings, and macros are verified with automatic readback protection.</li>
       <li><strong>Automatic Sync:</strong> Your current onboard settings are automatically read when you connect.</li>
-      <li><strong>USB Connection:</strong> Connect the keyboard via its <strong>USB cable</strong> (WebHID requires USB; 2.4GHz/Bluetooth are not supported).</li>
-      <li><strong>No Software Conflicts:</strong> Close any other keyboard utilities before connecting so the USB interface remains accessible.</li>
+      <li><strong>USB Connection:</strong> Connect the keyboard via USB cable (WebHID requires USB; 2.4GHz/Bluetooth are not supported).</li>
+      <li><strong>No Software Conflicts:</strong> Close any other keyboard utilities before connecting.</li>
     </ul>
     <div class="actions">
       <button id="btnAlphaCancel">Close</button>
@@ -308,6 +304,7 @@
     </div>
   </div>
 </div>
+
 <main>
   <div id="nosupport" class="banner err hidden">
     WebHID is not available in this browser. Use <b>Chrome</b>, <b>Edge</b>, <b>Brave</b>, or <b>Opera</b> (Chromium-based).
@@ -315,190 +312,245 @@
     On Linux you can also use the bundled <code>cli/apexctl.py</code>.
   </div>
 
-  <div class="tabs">
-    <button data-tab="overview" class="active">Overview</button>
-    <button data-tab="light">Lighting Studio</button>
-    <button data-tab="profiles">Profiles &amp; Keys</button>
-    <button data-tab="trigger">Hall Effect</button>
-    <button data-tab="developer">Developer Tools</button>
-  </div>
-
-  <!-- OVERVIEW (Landing Page) -->
+  <!-- OVERVIEW (Dashboard) -->
   <section id="overview" class="active">
-    <div class="hero">
-      <div class="hero-glow"></div>
+    <div class="card" style="padding:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <h2 style="margin:0;">Hardware Visualizer (75% Compact &bull; 85 Keys)</h2>
+        <span class="badge badge-info">Real-Time Lighting &amp; Sensor Feedback</span>
+      </div>
       <div class="hero-bg-keyboard" id="heroKeyboard">
         <!-- Keyboard rendered by JavaScript -->
       </div>
-      <div class="hero-content">
-        <h1>ANT ESPORTS <span>APEX 200</span></h1>
-        <p class="hero-subtitle">WebHID Control Panel</p>
-        <p class="hero-desc">Configure your APEX 200 keyboard directly from the browser. Lighting, key remapping, macros, triggers, and more — no software installation required.</p>
-        <div class="hero-actions">
-          <button id="btnHeroConnect" class="primary">Connect Keyboard</button>
-          <a href="https://github.com/Geckbags/apex-webhid" target="_blank" rel="noopener noreferrer" class="github-link-hero">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-            </svg>
-            GitHub
-          </a>
+    </div>
+
+    <!-- Disconnected State -->
+    <div id="heroDisconnectedCard" class="card" style="text-align:center; padding:32px 20px; max-width:680px; margin:0 auto 16px;">
+      <div style="font-size:32px; margin-bottom:8px;">⚡</div>
+      <h1 style="font-size:20px; margin:0 0 8px; font-weight:800; color:#fff;">Ready to Configure <span style="color:var(--accent);">APEX 200</span></h1>
+      <p style="font-size:13px; color:var(--muted); max-width:480px; margin:0 auto 20px; line-height:1.5;">
+        Configure RGB lighting, analog actuation depth, Rapid Trigger sensitivity, and onboard profiles directly in your browser without installing proprietary software.
+      </p>
+      <div class="row" style="justify-content:center; gap:12px;">
+        <button id="btnHeroConnect" class="primary" style="font-size:14px; padding:11px 26px; font-weight:700;">Connect APEX 200 Keyboard</button>
+        <a href="https://github.com/Geckbags/apex-webhid" target="_blank" rel="noopener noreferrer" class="github-link-hero">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+
+    <!-- Connected State (shows when device connects) -->
+    <div id="heroConnectedCard" class="card hidden" style="max-width:920px; margin:0 auto; padding:22px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--line);">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge badge-ok" style="font-size:12px; padding:4px 10px;">● Hardware Connected &amp; Synced</span>
+          <span class="pill on" id="heroDeviceLabel" style="font-size:13px; font-weight:700;">APEX 200</span>
         </div>
-        <div id="heroConnectedCard" class="card hidden" style="margin-top: 24px; text-align: left; max-width: 520px; margin-left: auto; margin-right: auto; background: rgba(23, 26, 32, 0.88); backdrop-filter: blur(12px); border-color: #3b4354;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-            <span style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ok);">
-              <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok);"></span>
-              Keyboard Connected &amp; Synced
-            </span>
-            <span class="pill on" id="heroDeviceLabel">APEX 200</span>
-          </div>
-          <p style="font-size: 13px; color: var(--muted); margin: 0 0 16px;">
-            Settings synchronized from keyboard. Choose a feature to customize:
-          </p>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <button id="btnJumpLighting" class="primary" style="font-size: 13px; padding: 10px;">🎨 Lighting Studio</button>
-            <button id="btnJumpProfiles" style="font-size: 13px; padding: 10px;">⌨️ Profiles &amp; Keys</button>
-            <button id="btnJumpTrigger" style="font-size: 13px; padding: 10px;">⚡ Hall Effect</button>
-            <button id="btnJumpDev" style="font-size: 13px; padding: 10px;">🛠️ Developer Tools</button>
-          </div>
+        <div style="font-size:12px; color:var(--muted);">
+          USB Full-Speed &bull; 1000Hz Ultra-Polling &bull; Onboard Memory Active
         </div>
+      </div>
+
+      <div style="margin-bottom:12px; font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">
+        Select a configuration tool:
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:12px;">
+        <button id="btnJumpLighting" class="primary" style="padding:14px; font-size:13px; text-align:left; display:flex; flex-direction:column; gap:4px;">
+          <span style="font-weight:700;">🎨 Lighting Studio</span>
+          <span style="font-size:11px; opacity:0.8; font-weight:normal;">12 RGB effects &amp; per-key lighting</span>
+        </button>
+        <button id="btnJumpTrigger" style="padding:14px; font-size:13px; text-align:left; display:flex; flex-direction:column; gap:4px;">
+          <span style="font-weight:700; color:var(--accent);">⚡ Performance</span>
+          <span style="font-size:11px; color:var(--muted); font-weight:normal;">Rapid Trigger &amp; 0.1mm actuation tuning</span>
+        </button>
+        <button id="btnJumpProfiles" style="padding:14px; font-size:13px; text-align:left; display:flex; flex-direction:column; gap:4px;">
+          <span style="font-weight:700;">⌨️ Profiles &amp; Keys</span>
+          <span style="font-size:11px; color:var(--muted); font-weight:normal;">Key remap &amp; debounce filters</span>
+        </button>
+        <button id="btnJumpDev" style="padding:14px; font-size:13px; text-align:left; display:flex; flex-direction:column; gap:4px;">
+          <span style="font-weight:700;">🛠️ Developer Tools</span>
+          <span style="font-size:11px; color:var(--muted); font-weight:normal;">Raw protocol inspection &amp; trace logs</span>
+        </button>
       </div>
     </div>
   </section>
 
-  <!-- LIGHTING -->
+  <!-- LIGHTING STUDIO -->
   <section id="light">
-    <div class="card">
-      <h2>Lighting Studio</h2>
-      <div class="row">
+    <div class="card" style="padding:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+        <h2>Interactive Lighting Canvas</h2>
+        <span class="badge badge-info">Live 85-Key RGB Preview</span>
+      </div>
+      <div id="keyboardPreview" class="keyboard-preview" aria-label="QWERTY keyboard effect preview">
+        <!-- Keys rendered by JavaScript -->
+      </div>
+      <div class="note">Click any physical key on the keyboard canvas above to paint individual keys below.</div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px;">
+      <div class="card" style="margin-bottom:0;">
+        <h2>Effect Preset &amp; Animation</h2>
+        <div class="grid">
+          <label class="field">Effect Preset
+            <select id="lMode"></select>
+          </label>
+          <label class="field">Brightness % (0&ndash;100)
+            <div class="row">
+              <input type="range" id="lBright" min="0" max="100" value="100">
+              <output id="lBrightOut">100</output>
+            </div>
+          </label>
+          <label class="field">Animation Speed (1&ndash;100)
+            <div class="row">
+              <input type="range" id="lSpeed" min="1" max="100" value="100">
+              <output id="lSpeedOut">100</output>
+            </div>
+          </label>
+        </div>
+
+        <div class="row" style="margin-top:16px; gap:12px; align-items:center;">
+          <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+            <span>Color:</span>
+            <input type="color" id="lEffectColor" value="#ff8a3d">
+          </label>
+          <button id="btnApplyLighting" class="primary" style="padding:9px 20px; font-weight:700;">Save &amp; Apply Lighting</button>
+          <button id="btnTurnOffBacklight" class="danger">Turn off lights</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+          <h2>Per-Key Custom Color Studio</h2>
+          <span class="badge badge-ok" id="selectedKeyColorLabel">Esc (Key 0)</span>
+        </div>
+        <div class="note" style="margin-top:0;">
+          Select any key on the visual keyboard above, pick a color, and apply to that specific key.
+        </div>
+        <div class="row" style="margin-top:14px; gap:12px; align-items:center;">
+          <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+            <span>Colour:</span>
+            <input type="color" id="pkAllColor" value="#ff0000">
+          </label>
+          <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+            <span>State:</span>
+            <select id="pkAllMode">
+              <option value="1">1 (On)</option>
+              <option value="0">0 (Off)</option>
+              <option value="2">2</option>
+            </select>
+          </label>
+          <button id="btnPaintSelectedKey" class="primary">Paint Selected Key</button>
+          <button id="btnPkAll">Set Every Key</button>
+        </div>
+        <div class="note" style="color:#4ade80; margin-top:12px;">
+          Write <code>0x11</code> &mdash; read-modify-write against <code>0x16</code>, then full-table readback verification.
+        </div>
+      </div>
+    </div>
+
+    <details class="advanced">
+      <summary>Advanced Protocol Operations &amp; Readbacks</summary>
+      <div class="row" style="margin-top:10px;">
         <button id="btnLightReadAll">Refresh lighting state</button>
         <span class="hint">Reads current animation, brightness, speed, and custom colors</span>
       </div>
       <div id="lightStatus" class="note">Not read yet &mdash; press <strong>Refresh lighting state</strong> or connect your keyboard.</div>
-    </div>
 
-    <div class="card">
-      <h2>Effect Engine</h2>
-      <div class="note">
-        Customize animation preset, brightness, speed, and active color. Click <strong>Save &amp; Apply Lighting</strong> to apply all settings.
+      <table class="params" style="margin-top:12px">
+        <thead><tr><th>Action</th><th>Command</th><th>Changes</th><th>Keeps</th></tr></thead>
+        <tbody>
+          <tr><td>Apply effect, brightness &amp; speed</td><td><code>0x13</code></td><td>effect index, brightness, speed</td><td>colour and device-owned bytes</td></tr>
+          <tr><td>Apply colour to this effect</td><td><code>0x13</code></td><td>R, G, B for this effect</td><td>brightness, speed, device-owned bytes</td></tr>
+          <tr><td>Make this the active effect</td><td><code>0x19</code></td><td>which effect is running</td><td>every config byte</td></tr>
+        </tbody>
+      </table>
+
+      <div class="row" style="margin-top:12px">
+        <button id="btnSetLight">Apply effect, brightness &amp; speed</button>
+        <span class="hint">write 0x13 &mdash; sliders only</span>
       </div>
-      <div class="grid">
-        <label class="field">Effect Preset
-          <select id="lMode"></select>
-        </label>
-        <label class="field">Brightness % (0&ndash;100)
-          <div class="row">
-            <input type="range" id="lBright" min="0" max="100" value="100">
-            <output id="lBrightOut">100</output>
-          </div>
-        </label>
-        <label class="field">Speed (1&ndash;100)
-          <div class="row">
-            <input type="range" id="lSpeed" min="1" max="100" value="100">
-            <output id="lSpeedOut">100</output>
-          </div>
-        </label>
+      <div class="row" style="margin-top:10px">
+        <button id="btnSetColour">Apply colour to this effect</button>
+        <span class="hint">write 0x13 &mdash; colour only</span>
       </div>
-
-      <div class="row" style="margin-top:16px; gap:12px; align-items:center;">
-        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
-          <span>Color:</span>
-          <input type="color" id="lEffectColor" value="#ff8a3d">
-        </label>
-        <button id="btnApplyLighting" class="primary" style="padding:8px 18px; font-weight:700;">Save &amp; Apply Lighting</button>
-        <button id="btnTurnOffBacklight" class="danger">Turn off lights</button>
+      <div class="row" style="margin-top:10px">
+        <button id="btnSelectEffect">Make this the active effect</button>
+        <span class="hint">write 0x19 &mdash; config unchanged</span>
       </div>
-
-      <details class="advanced" style="margin-top:18px">
-        <summary>Advanced / Step-by-Step Operations</summary>
-        <table class="params" style="margin-top:12px">
-          <thead><tr><th>Action</th><th>Command</th><th>Changes</th><th>Keeps</th></tr></thead>
-          <tbody>
-            <tr>
-              <td>Apply effect, brightness &amp; speed</td>
-              <td><code>0x13</code></td>
-              <td>effect index, brightness, speed</td>
-              <td>colour and device-owned bytes</td>
-            </tr>
-            <tr>
-              <td>Apply colour to this effect</td>
-              <td><code>0x13</code></td>
-              <td>R, G, B for this effect</td>
-              <td>brightness, speed, device-owned bytes</td>
-            </tr>
-            <tr>
-              <td>Make this the active effect</td>
-              <td><code>0x19</code></td>
-              <td>which effect is running</td>
-              <td>every config byte</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="row" style="margin-top:12px">
-          <button id="btnSetLight">Apply effect, brightness &amp; speed</button>
-          <span class="hint">write 0x13 &mdash; sliders only</span>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button id="btnSetColour">Apply colour to this effect</button>
-          <span class="hint">write 0x13 &mdash; colour only</span>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button id="btnSelectEffect">Make this the active effect</button>
-          <span class="hint">write 0x19 &mdash; config unchanged</span>
-        </div>
-        <div class="row" style="margin-top:14px">
-          <button id="btnGetLight">Read config (0x17)</button>
-          <button id="btnGetLightName">Read names (0x18)</button>
-          <button id="btnReadEffectCount">Read current effect (0x17, 0xFF)</button>
-          <button id="btnReadEffects">Rebuild name list (0x18)</button>
-          <button id="btnCustom">Read per-key raw (0x16)</button>
-        </div>
-        <div id="effectInfo" class="note hidden"></div>
-        <pre id="lightOut" class="hidden"></pre>
-      </details>
-    </div>
-
-
-
-    <div class="card">
-      <h2>Keyboard preview</h2>
-      <p class="hint">Live preview of the selected effect, brightness, speed and colour</p>
-      <div id="keyboardPreview" class="keyboard-preview" aria-label="QWERTY keyboard effect preview">
-        <!-- Keys rendered by JavaScript -->
+      <div class="row" style="margin-top:14px">
+        <button id="btnGetLight">Read config (0x17)</button>
+        <button id="btnGetLightName">Read names (0x18)</button>
+        <button id="btnReadEffectCount">Read current effect (0x17, 0xFF)</button>
+        <button id="btnReadEffects">Rebuild name list (0x18)</button>
+        <button id="btnCustom">Read per-key raw (0x16)</button>
       </div>
-    </div>
+      <div id="effectInfo" class="note hidden"></div>
+      <pre id="lightOut" class="hidden"></pre>
+      <pre id="pkOut" class="hidden"></pre>
+    </details>
+  </section>
 
-    <div class="card">
+  <!-- HALL EFFECT (PERFORMANCE) -->
+  <section id="trigger">
+    <div class="card" style="padding:16px;">
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-        <h2>Per-Key Custom Color Studio</h2>
+        <h2>Interactive 85-Key Sensor Map</h2>
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:12px; color:var(--muted);">Selected Key:</span>
-          <span class="badge badge-ok" id="selectedKeyColorLabel">Esc (Key 0)</span>
+          <span class="badge badge-ok" id="selectedKeyDisplay" style="font-size:13px; font-weight:700; padding:4px 10px;">Esc (Item 0)</span>
         </div>
       </div>
-      <div class="note">
-        Set custom static backlight colors. Select any key above or below to paint individual keys, or set a solid color across the entire board.
+      <div class="keyboard-frame" id="keyGrid"></div>
+      <div class="note">Click any physical key on the keyboard above to inspect its actuation, Rapid Trigger sensitivity, and Hall-effect sensor ADC levels.</div>
+    </div>
+
+    <div class="card">
+      <h2>Analog Actuation &amp; Rapid Trigger Sensitivity</h2>
+      <div class="note" style="margin-top:0">
+        Adjust analog key press depth actuation and Rapid Trigger sensitivity. Product ranges: trigger 10–359 (~0.1mm–3.6mm), release 4–330, reset 4–330.
       </div>
-      <div class="row" style="margin-top:14px; gap:12px; align-items:center;">
-        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
-          <span>Colour:</span>
-          <input type="color" id="pkAllColor" value="#ff0000">
+      <div class="grid" style="margin-top:12px">
+        <label class="field">Actuation Point (Press Depth)
+          <input type="range" id="tTrigger" min="10" max="359" value="40">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+            <span class="note" style="margin:0;">Range: 0.1mm &ndash; 3.6mm</span>
+            <span id="tTriggerV" class="badge badge-info" style="font-weight:700;">40</span>
+          </div>
         </label>
-        <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
-          <span>State:</span>
-          <select id="pkAllMode">
-            <option value="1">1 (On)</option>
-            <option value="0">0 (Off)</option>
-            <option value="2">2</option>
-          </select>
+        <label class="field">Rapid Trigger Release Distance
+          <input type="range" id="tRelease" min="4" max="330" value="30">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+            <span class="note" style="margin:0;">Range: 0.04mm &ndash; 3.3mm</span>
+            <span id="tReleaseV" class="badge badge-info" style="font-weight:700;">30</span>
+          </div>
         </label>
-        <button id="btnPaintSelectedKey" class="primary">Paint Selected Key</button>
-        <button id="btnPkAll">Set Every Key</button>
+        <label class="field">Rapid Trigger Reset Distance
+          <input type="range" id="tReset" min="4" max="330" value="10">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:2px;">
+            <span class="note" style="margin:0;">Range: 0.04mm &ndash; 3.3mm</span>
+            <span id="tResetV" class="badge badge-info" style="font-weight:700;">10</span>
+          </div>
+        </label>
       </div>
-      <div class="note" style="color:#4ade80">
-        Write <code>0x11</code> &mdash; read-modify-write against <code>0x16</code>, then full-table readback verification.
+      <div class="row" style="margin-top:14px">
+        <label class="field">First key
+          <input type="number" id="calibStart" value="1" min="1" max="85">
+        </label>
+        <label class="field">Last key
+          <input type="number" id="calibEnd" value="85" min="1" max="85">
+        </label>
+        <button id="btnCalibRange" class="primary">Read ADC range (0x5B)</button>
+        <button id="btnCalibStateRange">Read calibration state (0x52)</button>
       </div>
-      <pre id="pkOut" class="hidden"></pre>
+      <div class="banner warn" style="margin-top:14px;">
+        <strong>Safety Note:</strong> Writing custom actuation points to onboard memory is kept in read-only safety mode while hardware validation is conducted. ADC calibration readings and diagnostics above are safe to inspect.
+      </div>
+      <pre id="triggerOut" class="hidden"></pre>
     </div>
   </section>
 
@@ -830,61 +882,6 @@
         are still unnamed, so those stay a raw hex field.
       </div>
       <pre id="highKeyOut" class="hidden"></pre>
-    </div>
-  </section>
-
-  <!-- HALL EFFECT -->
-  <section id="trigger">
-    <div class="card">
-      <h2>Actuation Points &amp; Rapid Trigger</h2>
-      <div class="note" style="margin-top:0">
-        Adjust analog key press depth actuation and Rapid Trigger sensitivity. Product ranges: trigger 10–359 (~0.1mm–3.6mm), release 4–330, reset 4–330.
-      </div>
-      <div class="grid" style="margin-top:12px">
-        <label class="field">Actuation Point (Press Depth)
-          <input type="range" id="tTrigger" min="10" max="359" value="40">
-          <span id="tTriggerV" class="note">40</span>
-        </label>
-        <label class="field">Rapid Trigger Release Distance
-          <input type="range" id="tRelease" min="4" max="330" value="30">
-          <span id="tReleaseV" class="note">30</span>
-        </label>
-        <label class="field">Rapid Trigger Reset Distance
-          <input type="range" id="tReset" min="4" max="330" value="10">
-          <span id="tResetV" class="note">10</span>
-        </label>
-      </div>
-      <div class="row" style="margin-top:14px">
-        <label class="field">First key
-          <input type="number" id="calibStart" value="1" min="1" max="85">
-        </label>
-        <label class="field">Last key
-          <input type="number" id="calibEnd" value="85" min="1" max="85">
-        </label>
-        <button id="btnCalibRange" class="primary">Read ADC range (0x5B)</button>
-        <button id="btnCalibStateRange">Read calibration state (0x52)</button>
-      </div>
-      <div class="banner warn" style="margin-top:14px;">
-        <strong>Safety Note:</strong> Writing custom actuation points to onboard memory is kept in read-only safety mode while hardware validation is conducted. ADC calibration readings and diagnostics above are safe to inspect.
-      </div>
-      <pre id="triggerOut" class="hidden"></pre>
-    </div>
-
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-        <h2>Interactive 85-Key Map &amp; Sensor Inspector</h2>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:12px; color:var(--muted);">Selected Key:</span>
-          <span class="badge badge-ok" id="selectedKeyDisplay" style="font-size:13px; font-weight:700; padding:4px 10px;">Esc (Item 0)</span>
-        </div>
-      </div>
-      <div class="note" style="margin-top:0; margin-bottom:14px;">
-        Click any physical key on the keyboard below to inspect its actuation, Rapid Trigger sensitivity, and Hall-effect sensor ADC levels.
-      </div>
-      <div class="keyboard-frame" id="keyGrid"></div>
-      <div class="note">
-        Interactive 75% compact (85-key) layout. Clicking a key updates the active key selection across calibration, actuation, and lighting modules.
-      </div>
     </div>
   </section>
 
