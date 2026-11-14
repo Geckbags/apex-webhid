@@ -13,6 +13,7 @@ const $ = (sel) => document.querySelector(sel);
 const hid = new ApexHid();
 
 let selectedKey = 0;
+let isCustomPerKeyActive = false;
 const customKeyColors = {};
 
 function escapeHtml(str) {
@@ -347,16 +348,34 @@ function applyDetectedLighting(table, customColors) {
     }
   }
 
-  if (dominantCustomHex && maxCount >= 5) {
+  if (dominantCustomHex && maxCount >= 20) {
+    detectedColor = dominantCustomHex;
+    detectedEffect = 1;
+    detectedName = `Static (${dominantCustomHex.toUpperCase()})`;
+    isCustomPerKeyActive = false;
+
+    // Reconcile unlit / anomaly / indicator EEPROM keys (such as Esc, slash, PgUp) to the dominant keyboard lighting
+    const domR = parseInt(dominantCustomHex.slice(1, 3), 16);
+    const domG = parseInt(dominantCustomHex.slice(3, 5), 16);
+    const domB = parseInt(dominantCustomHex.slice(5, 7), 16);
+    for (let i = 0; i < PRODUCT.keyNumber; i++) {
+      const rec = customColors[i];
+      if (!rec || !rec.light || rec.hex === '#000000' || (hexCounts[rec.hex?.toLowerCase()] || 0) <= 2) {
+        customColors[i] = { light: 1, r: domR, g: domG, b: domB, hex: dominantCustomHex };
+      }
+    }
+  } else if (dominantCustomHex && maxCount >= 5 && validCustomKeys > 15) {
     detectedColor = dominantCustomHex;
     detectedEffect = 1;
     detectedName = `Custom Per-Key RGB (${dominantCustomHex.toUpperCase()})`;
+    isCustomPerKeyActive = true;
   } else if (foundRecord) {
     detectedEffect = foundRecord.effect;
     detectedColor = foundRecord.colour.hex || '#a855f7';
     detectedBright = foundRecord.brightness || 100;
     detectedSpeed = foundRecord.speed || 50;
     detectedName = `${effectLabel(foundRecord.effect)} (${detectedColor.toUpperCase()})`;
+    isCustomPerKeyActive = false;
   }
 
   const mode = $('#lMode');
@@ -1929,6 +1948,8 @@ $('#btnPaintSelectedKey').addEventListener('click', async () => {
     const b = parseInt(hexColor.slice(5, 7), 16);
     const light = Number($('#pkAllMode').value) & 0xff;
     customKeyColors[selectedKey] = { light, r, g, b, hex: hexColor };
+    isCustomPerKeyActive = true;
+    renderKeyboard($('#lMode').value, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
     setStatus(`setting colour for key ${selectedKey}...`, '');
     const res = await hid.setCustomLight({ keys: { [selectedKey]: { light, r, g, b } } });
     showOutput('#pkOut',
@@ -1950,6 +1971,8 @@ $('#btnPkAll').addEventListener('click', async () => {
     for (let i = 0; i < PRODUCT.keyNumber; i += 1) {
       customKeyColors[i] = { light, r, g, b, hex };
     }
+    isCustomPerKeyActive = true;
+    renderKeyboard($('#lMode').value, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
     setStatus('setting per-key colours...', '');
     const res = await hid.setCustomLight({ all: { light, r, g, b } });
     const pages = (res.pages ?? [])
@@ -2160,8 +2183,16 @@ const KEY_CODE_TO_ID = {
 function updateVisualizerFeedback(keyId, isDown) {
   const key = KEYBOARD_LAYOUT_85[keyId];
   const activeLabel = $('#vizActiveKey');
-  if (activeLabel && key) {
-    activeLabel.textContent = `${key.label} (Item ${keyId})`;
+  if (activeLabel) {
+    if (isDown && key) {
+      activeLabel.textContent = `${key.label} (Item ${keyId})`;
+    } else if (activeKeys.size > 0) {
+      const firstActive = [...activeKeys][0];
+      const k = KEYBOARD_LAYOUT_85[firstActive];
+      activeLabel.textContent = k ? `${k.label} (Item ${firstActive})` : 'Active';
+    } else {
+      activeLabel.textContent = 'None';
+    }
   }
   const sensorStatus = $('#vizSensorStatus');
   if (sensorStatus) {
@@ -2233,12 +2264,12 @@ function renderKeyboard(effect, brightness, speed, colour, time) {
         let keyR = 0, keyG = 0, keyB = 0;
         let intensity = 0;
 
-        if (customKeyColors[key.id] && (effectIdx === 1 || effectIdx === 2)) {
+        if (isCustomPerKeyActive && customKeyColors[key.id]) {
           const c = customKeyColors[key.id];
-          intensity = c.light ? maxBright : 0;
-          keyR = c.r;
-          keyG = c.g;
-          keyB = c.b;
+          intensity = c.light ? maxBright : maxBright * 0.2;
+          keyR = c.light ? c.r : colourR;
+          keyG = c.light ? c.g : colourG;
+          keyB = c.light ? c.b : colourB;
         } else {
           switch (effectIdx) {
             case 0: // Close - all off
@@ -2435,6 +2466,7 @@ function updateLightingControls() {
 }
 
 $('#lMode').addEventListener('change', () => {
+  isCustomPerKeyActive = false;
   const effect = $('#lMode').value || 0;
   const colour = $('#lEffectColor').value;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, colour);
@@ -2460,12 +2492,14 @@ $('#lSpeed').addEventListener('input', () => {
 });
 
 $('#lEffectColor').addEventListener('input', () => {
+  isCustomPerKeyActive = false;
   const effect = $('#lMode').value || 0;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
   updateVisualizerFeedback(selectedKey, false);
 });
 
 $('#lEffectColor').addEventListener('change', () => {
+  isCustomPerKeyActive = false;
   const effect = $('#lMode').value || 0;
   renderKeyboard(effect, $('#lBright').value, $('#lSpeed').value, $('#lEffectColor').value);
   updateVisualizerFeedback(selectedKey, false);
