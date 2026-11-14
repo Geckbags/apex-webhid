@@ -1911,21 +1911,77 @@ renderOpcodeList();
 
 $('#btnClearTrace').addEventListener('click', () => { $('#trace').innerHTML = ''; });
 
-/* ---------------------------------------------------------------- alpha warning modal */
+/* ----------------------------------------------------------- view navigation & beta modal */
 
 const alphaModal = $('#alphaModal');
-const alphaAccepted = localStorage.getItem('apex-alpha-accepted');
-
 alphaModal.style.display = 'none';
 
+export function showAppView() {
+  const landing = $('#landingView');
+  const app = $('#appView');
+  if (landing) landing.classList.add('hidden');
+  if (app) app.classList.remove('hidden');
+  window.location.hash = '#app';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+export function showLandingView() {
+  const landing = $('#landingView');
+  const app = $('#appView');
+  if (landing) landing.classList.remove('hidden');
+  if (app) app.classList.add('hidden');
+  if (window.location.hash === '#app') {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function handleLaunchClick() {
+  const accepted = localStorage.getItem('apex-beta-accepted');
+  if (accepted === '1') {
+    showAppView();
+    if (!hid.connected && webHidSupported()) {
+      $('#btnConnect').click();
+    }
+  } else {
+    $('#alphaModal').style.display = 'flex';
+  }
+}
+
+$('#btnLaunchApp').addEventListener('click', handleLaunchClick);
+$('#btnLandingHeroLaunch').addEventListener('click', handleLaunchClick);
+
+$('#btnReturnLanding').addEventListener('click', () => {
+  showLandingView();
+});
+
 $('#btnAlphaAccept').addEventListener('click', () => {
-  localStorage.setItem('apex-alpha-accepted', '1');
-  alphaModal.style.display = 'none';
+  localStorage.setItem('apex-beta-accepted', '1');
+  $('#alphaModal').style.display = 'none';
+  showAppView();
+  if (!hid.connected && webHidSupported()) {
+    $('#btnConnect').click();
+  }
 });
 
 $('#btnAlphaCancel').addEventListener('click', () => {
-  alphaModal.style.display = 'none';
+  $('#alphaModal').style.display = 'none';
 });
+
+window.addEventListener('hashchange', () => {
+  if (window.location.hash === '#app') {
+    showAppView();
+  } else {
+    showLandingView();
+  }
+});
+
+const isIframe = window.self !== window.top;
+if (isIframe || window.location.hash === '#app') {
+  showAppView();
+} else {
+  showLandingView();
+}
 
 // Overview fast navigation buttons
 const jumpTabs = [
@@ -2259,8 +2315,8 @@ animateKeyboard();
 const HERO_EFFECTS = [5]; // Only Flow L->R for now
 
 function renderHeroKeyboard(effect, brightness, speed, colour, time) {
-  const preview = document.getElementById('heroKeyboard');
-  if (!preview) return;
+  const previews = document.querySelectorAll('.hero-bg-keyboard');
+  if (!previews.length) return;
   let html = '';
   const effectIdx = Number(effect) || 0;
   const colourR = parseInt(colour.slice(1, 3), 16);
@@ -2305,7 +2361,9 @@ function renderHeroKeyboard(effect, brightness, speed, colour, time) {
     }
     html += '</div>';
   }
-  preview.innerHTML = html;
+  previews.forEach((p) => {
+    p.innerHTML = html;
+  });
 }
 
 let heroEffectIndex = 0;
@@ -2320,8 +2378,8 @@ function animateHeroKeyboard() {
 }
 
 function startHeroAnimation() {
-  const heroKb = document.getElementById('heroKeyboard');
-  if (heroKb && !heroAnimFrameId) {
+  const heroKbs = document.querySelectorAll('.hero-bg-keyboard');
+  if (heroKbs.length && !heroAnimFrameId) {
     heroAnimStartTime = Date.now();
     heroEffectIndex = 0;
     animateHeroKeyboard();
